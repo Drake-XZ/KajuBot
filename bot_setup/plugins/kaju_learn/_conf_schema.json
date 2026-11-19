@@ -1,0 +1,500 @@
+{
+  "enable": {
+    "type": "bool",
+    "description": "启用学到的东西",
+    "default": true
+  },
+  "provider_id": {
+    "type": "string",
+    "description": "后台学东西、睡前消化用哪个模型（留空 = 当前聊天模型）",
+    "default": ""
+  },
+  "day_start_hour": {
+    "type": "int",
+    "description": "几点算新的一天（要和 kaju_life 一致）",
+    "default": 5
+  },
+  "interval_minutes": {
+    "type": "float",
+    "description": "后台多久整理一次（分钟）",
+    "default": 5
+  },
+  "first_delay_seconds": {
+    "type": "float",
+    "description": "插件加载后多久开始第一次整理（秒）",
+    "default": 90
+  },
+  "timeout_seconds": {
+    "type": "float",
+    "description": "一次模型请求的超时（秒）",
+    "default": 120
+  },
+  "backfill_days": {
+    "type": "int",
+    "description": "第一次启用时补读最近几天的聊天记录",
+    "default": 7
+  },
+  "half_life_days": {
+    "type": "float",
+    "description": "记不清的快慢：'听说过'的半衰期天数（越熟越慢：×2、×3、×4），用一次重新算",
+    "default": 30
+  },
+  "ignore_platforms": {
+    "type": "list",
+    "description": "这些平台的聊天不给她看【你知道的】",
+    "default": [
+      "webchat"
+    ]
+  },
+  "chat": {
+    "type": "object",
+    "description": "从聊天里学（kaju_life 的聊天记录，私聊、群聊都算）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "settle_seconds": {
+        "type": "float",
+        "description": "一段聊天安静多少秒后再整段看",
+        "default": 150
+      },
+      "batch_lines": {
+        "type": "int",
+        "description": "一次最多看几条消息",
+        "default": 40
+      },
+      "min_chars": {
+        "type": "int",
+        "description": "别人说的话加起来少于这么多字就不看（寒暄、斗图）",
+        "default": 12
+      },
+      "max_calls_per_round": {
+        "type": "int",
+        "description": "每轮最多请求几次模型",
+        "default": 4
+      },
+      "max_items": {
+        "type": "int",
+        "description": "一段聊天最多记几样",
+        "default": 6
+      }
+    }
+  },
+  "content": {
+    "type": "object",
+    "description": "从看过、读过、听过的东西里学（文件、B站/抖音视频、音乐、自己刷B站）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "delay_seconds": {
+        "type": "float",
+        "description": "看完多少秒后再学（让她先回完话）",
+        "default": 20
+      },
+      "max_chars": {
+        "type": "int",
+        "description": "给模型看的内容最多多少字",
+        "default": 3500
+      },
+      "max_items": {
+        "type": "int",
+        "description": "一样东西里最多记几样",
+        "default": 6
+      },
+      "max_per_round": {
+        "type": "int",
+        "description": "每轮最多学几样",
+        "default": 6
+      }
+    }
+  },
+  "web": {
+    "type": "object",
+    "description": "从上网查到的内容里学（web_search、deepseek_fetch 等工具）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "trust": {
+        "type": "bool",
+        "description": "查到的当成靠谱的（关掉就都记成'拿不准'）",
+        "default": true
+      }
+    }
+  },
+  "digest": {
+    "type": "object",
+    "description": "睡前消化：把最近学的挂到旧的上、合并重复、发现联系、冒出想弄明白的事",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "hour": {
+        "type": "int",
+        "description": "几点以后理（一天一次）",
+        "default": 4
+      },
+      "batch": {
+        "type": "int",
+        "description": "一次给模型看几条最近的",
+        "default": 14
+      },
+      "max_batches": {
+        "type": "int",
+        "description": "一晚最多理几批",
+        "default": 4
+      },
+      "neighbors": {
+        "type": "int",
+        "description": "每批再带上几条有关的旧条目",
+        "default": 12
+      }
+    }
+  },
+  "wonder": {
+    "type": "object",
+    "description": "想弄明白的事",
+    "items": {
+      "browse_chance": {
+        "type": "float",
+        "description": "自己刷B站又没说看什么时，拿一件想弄明白的事去搜的概率",
+        "default": 0.5
+      },
+      "search": {
+        "type": "bool",
+        "description": "想弄明白的事自己上网查（11-19 起；原来只在自己刷B站又没定主题时才搜，几乎没发生过）",
+        "default": true
+      },
+      "every_hours": {
+        "type": "float",
+        "description": "自己上网查想弄明白的事：每几个小时最多查一件",
+        "default": 6
+      },
+      "min_age_hours": {
+        "type": "float",
+        "description": "想弄明白的事攒下几个小时后才去查",
+        "default": 2
+      }
+    }
+  },
+  "reading": {
+    "type": "object",
+    "description": "边读边想：长篇一段一段读（当场读开头，后面在后台按她的速度慢慢读），长视频一段一段看",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用（长篇小说一段一段读）",
+        "default": true
+      },
+      "video": {
+        "type": "bool",
+        "description": "长视频也边看边想",
+        "default": true
+      },
+      "chars_per_minute": {
+        "type": "float",
+        "description": "她每分钟读多少字（400 ≈ 一小时两万多字）",
+        "default": 400
+      },
+      "segment_chars": {
+        "type": "int",
+        "description": "一段大约多少字（有章节按章切，太长的章再切开）",
+        "default": 3000
+      },
+      "max_segments": {
+        "type": "int",
+        "description": "一本书最多切几段（再长的书每段就长一点）",
+        "default": 40
+      },
+      "segment_limit": {
+        "type": "int",
+        "description": "一段最多给模型看多少字",
+        "default": 6000
+      },
+      "first_segments": {
+        "type": "int",
+        "description": "收到时当场先读几段",
+        "default": 1
+      },
+      "quiet_start": {
+        "type": "int",
+        "description": "几点以后不读（她睡了）",
+        "default": 23
+      },
+      "quiet_end": {
+        "type": "int",
+        "description": "几点以前不读",
+        "default": 8
+      },
+      "voice_min_intensity": {
+        "type": "int",
+        "description": "感受到多强，读到的那一下写成心声存进长期记忆（0~3）",
+        "default": 2
+      },
+      "voice_per_book": {
+        "type": "int",
+        "description": "一本书读的过程中最多写几条心声（读完那一下另算）",
+        "default": 4
+      },
+      "voice_gap": {
+        "type": "int",
+        "description": "两条心声至少隔几段（很强烈的不用隔）",
+        "default": 4
+      },
+      "learn_every": {
+        "type": "int",
+        "description": "每读几段把读到的东西学进知识本一次（读完时也学）",
+        "default": 6
+      },
+      "share": {
+        "type": "bool",
+        "description": "兄长大人发的书：读到特别想说的地方、读完时主动私聊他",
+        "default": true
+      },
+      "mid_shares": {
+        "type": "int",
+        "description": "一本书读到一半最多主动说几次",
+        "default": 2
+      },
+      "mid_gap_minutes": {
+        "type": "float",
+        "description": "读到一半主动说，两次至少隔多久（分钟）",
+        "default": 90
+      },
+      "share_per_day": {
+        "type": "int",
+        "description": "读书相关的主动私聊每天最多几次",
+        "default": 4
+      },
+      "done_note_hours": {
+        "type": "float",
+        "description": "读完以后多少小时内，在那个聊天里还给她看【你刚读完的】",
+        "default": 12
+      },
+      "check": {
+        "type": "bool",
+        "description": "回复前把她说的读书进度、情节对着实际核对（说错的改成实际的；答应了接着读/先停却没改的，替她改过来）",
+        "default": true
+      },
+      "check_provider_id": {
+        "type": "string",
+        "description": "核对用哪个模型（留空 = 后台学东西那个 / 当前聊天模型）",
+        "default": ""
+      },
+      "check_timeout": {
+        "type": "float",
+        "description": "核对最多等几秒（超时照原样发）",
+        "default": 30
+      },
+      "stop_tell": {
+        "type": "bool",
+        "description": "兄长大人的书停下了（不是他让停的）、或者读不成，主动私聊告诉他",
+        "default": true
+      },
+      "stop_tell_fails": {
+        "type": "int",
+        "description": "连着几次没读成就告诉兄长（每次隔 5 分钟再试）",
+        "default": 3
+      }
+    }
+  },
+  "use": {
+    "type": "object",
+    "description": "聊天时给她看【你知道的】",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "max_cards": {
+        "type": "int",
+        "description": "一轮最多给几样",
+        "default": 4
+      }
+    }
+  },
+  "embed": {
+    "type": "object",
+    "description": "本地向量模型（换个说法也能想起来）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "url": {
+        "type": "string",
+        "description": "Ollama 地址",
+        "default": "http://127.0.0.1:11435"
+      },
+      "model": {
+        "type": "string",
+        "description": "向量模型",
+        "default": "bge-m3"
+      },
+      "timeout": {
+        "type": "float",
+        "description": "超时（秒）",
+        "default": 4
+      },
+      "use_threshold": {
+        "type": "float",
+        "description": "聊天时意思多近才算聊到了（余弦；实测真聊到的 ≥0.67，闲聊最高约 0.53）",
+        "default": 0.62
+      },
+      "use_margin": {
+        "type": "float",
+        "description": "最近的那样要比第二近的高出多少才算（免得一句闲聊跟谁都差不多近）",
+        "default": 0.1
+      },
+      "word_threshold": {
+        "type": "float",
+        "description": "字面对上三个字时（'小傻龙'↔说明里的'小傻龙玩偶'）意思多近就算聊到了",
+        "default": 0.5
+      },
+      "known_threshold": {
+        "type": "float",
+        "description": "学东西时意思多近算可能是同一样（余弦）",
+        "default": 0.55
+      }
+    }
+  },
+  "lessons": {
+    "type": "object",
+    "description": "自己总结教训（11-19）：每晚复盘前一天说过的话，写成“场合 → 下次怎么做”，每轮挑最像的几条交给大脑",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "inject": {
+        "type": "bool",
+        "description": "把相关的教训交给大脑（关了只复盘、不用）",
+        "default": true
+      },
+      "days_back": {
+        "type": "int",
+        "description": "最多往回复盘几天",
+        "default": 2
+      },
+      "batch": {
+        "type": "int",
+        "description": "复盘时一次给模型看几句她说的话",
+        "default": 8
+      },
+      "max_show": {
+        "type": "int",
+        "description": "每轮最多给几条",
+        "default": 3
+      },
+      "threshold": {
+        "type": "float",
+        "description": "教训和眼前这句至少多像才给（bge-m3 余弦）",
+        "default": 0.45
+      },
+      "learned_after": {
+        "type": "int",
+        "description": "生效后给看过几次、这期间没再犯就算学会了",
+        "default": 6
+      },
+      "fade_days": {
+        "type": "float",
+        "description": "多少天没碰到也没用上就淡掉",
+        "default": 30
+      },
+      "max_active": {
+        "type": "int",
+        "description": "同时生效的最多几条",
+        "default": 30
+      },
+      "self_facts": {
+        "type": "bool",
+        "description": "复盘时顺带把“她能做 / 做不到 / 做过 / 有的”记进【关于自己】（kaju_life self_learned.json；只收能力和经历）",
+        "default": true
+      }
+    }
+  },
+  "jargon": {
+    "type": "object",
+    "description": "这个群的叫法和黑话（11-19，照 MaiBot 黑话学习）：每晚按群读前一天群聊学“叫法 → 意思”，群里提到时告诉大脑",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "inject": {
+        "type": "bool",
+        "description": "群里提到时告诉大脑（关了只学不用）",
+        "default": true
+      },
+      "days_back": {
+        "type": "int",
+        "description": "最多往回学几天",
+        "default": 2
+      },
+      "min_lines": {
+        "type": "int",
+        "description": "这天这个群至少多少句才学",
+        "default": 20
+      },
+      "batch_lines": {
+        "type": "int",
+        "description": "一次给模型看几句",
+        "default": 150
+      },
+      "confirm_uses": {
+        "type": "int",
+        "description": "没人解释过的，在这个群累计出现几次才算确定",
+        "default": 3
+      },
+      "max_show": {
+        "type": "int",
+        "description": "一轮最多告诉几个",
+        "default": 4
+      },
+      "show_guesses": {
+        "type": "bool",
+        "description": "没确定的（猜的）也告诉大脑（默认不告诉，等确定了再说）",
+        "default": false
+      }
+    }
+  },
+  "verify": {
+    "type": "object",
+    "description": "睡前核对旧事实（11-19）：又被人提到的卡，对照后来的聊天和今天的日期，不对 / 过时的挪进“拿不准”",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "days": {
+        "type": "int",
+        "description": "看最近几天的聊天",
+        "default": 14
+      },
+      "every_days": {
+        "type": "float",
+        "description": "同一张卡隔几天才再核对",
+        "default": 7
+      },
+      "max_cards": {
+        "type": "int",
+        "description": "一天最多核对几张卡",
+        "default": 10
+      }
+    }
+  }
+}

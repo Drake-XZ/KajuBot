@@ -1,0 +1,373 @@
+{
+  "enable": {
+    "type": "bool",
+    "description": "启用心情与好感",
+    "default": true
+  },
+  "bond": {
+    "type": "object",
+    "description": "最依赖的人：她最依赖兄长大人本人（是谁看称呼簿的 owner_qq）；被骚扰时先按情绪回对方，再去找兄长大人帮忙",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "notify_private": {
+        "type": "bool",
+        "description": "私聊把经过（在哪、谁、原话）发给兄长大人",
+        "default": true
+      },
+      "notify_group_at": {
+        "type": "bool",
+        "description": "在群里：她回完对方后再 @ 兄长大人说一句（兄长大人在这个群里才 @）",
+        "default": true
+      },
+      "cooldown_minutes": {
+        "type": "float",
+        "description": "同一个人在同一个地方，多少分钟内只找一次兄长大人",
+        "default": 10
+      },
+      "hourly_limit": {
+        "type": "int",
+        "description": "每小时最多找兄长大人几次（防止被人故意刷）",
+        "default": 6
+      }
+    }
+  },
+  "show_number": {
+    "type": "bool",
+    "description": "/好感度 给普通群友看自己的数值（关掉就只说档位）",
+    "default": true
+  },
+  "provider_id": {
+    "type": "string",
+    "description": "后台判断用哪个模型（提供商 id，留空 = 当前聊天模型）",
+    "default": ""
+  },
+  "timeout_seconds": {
+    "type": "float",
+    "description": "后台判断一次的超时（秒）",
+    "default": 60
+  },
+  "max_wait": {
+    "type": "float",
+    "description": "上一轮的判断还没出来时，下一轮回复前最多等几秒",
+    "default": 8
+  },
+  "ignore_platforms": {
+    "type": "list",
+    "description": "这些平台的聊天不改心情和好感（网页测试对话默认不算）",
+    "default": [
+      "webchat"
+    ]
+  },
+  "mood": {
+    "type": "object",
+    "description": "心情（全局一份）",
+    "items": {
+      "circadian": {
+        "type": "bool",
+        "description": "精神跟着作息走（深夜、清晨基线低一些，会有点困）",
+        "default": true
+      },
+      "half_life_joy": {
+        "type": "float",
+        "description": "开心/低落回到平常的半衰期（小时）",
+        "default": 3
+      },
+      "half_life_energy": {
+        "type": "float",
+        "description": "精神回到平常的半衰期（小时）",
+        "default": 2
+      },
+      "half_life_stress": {
+        "type": "float",
+        "description": "委屈/紧张消下去的半衰期（小时）",
+        "default": 4
+      },
+      "half_life_warm": {
+        "type": "float",
+        "description": "想黏人回到平常的半衰期（小时）",
+        "default": 3
+      },
+      "event_half_minutes": {
+        "type": "float",
+        "description": "\"刚才那件事\"还挂在心上的半衰期（分钟）",
+        "default": 45
+      },
+      "turn_cap": {
+        "type": "float",
+        "description": "一轮对话每一维心情最多变多少（0~1）",
+        "default": 0.25
+      },
+      "owner_weight": {
+        "type": "float",
+        "description": "兄长大人本人带来的情绪放大倍数",
+        "default": 1.3
+      },
+      "weather": {
+        "type": "bool",
+        "description": "每天的天气：按日期给心情平常值一个小偏移（同一天一样、每天不一样；照 anima-brain）",
+        "default": true
+      },
+      "weather_joy": {
+        "type": "float",
+        "description": "天气对开心的最大偏移",
+        "default": 0.08
+      },
+      "weather_energy": {
+        "type": "float",
+        "description": "天气对精神的最大偏移",
+        "default": 0.06
+      }
+    }
+  },
+  "affection": {
+    "type": "object",
+    "description": "好感（每人一份，0~100）",
+    "items": {
+      "start": {
+        "type": "float",
+        "description": "第一次见面的好感（以前聊得多的人最多再高 15）",
+        "default": 50
+      },
+      "owner_floor": {
+        "type": "float",
+        "description": "兄长大人本人的好感不会低于这个数",
+        "default": 95
+      },
+      "turn_up_cap": {
+        "type": "float",
+        "description": "一轮对话最多涨多少",
+        "default": 3
+      },
+      "turn_down_cap": {
+        "type": "float",
+        "description": "一轮对话最多跌多少",
+        "default": 6
+      },
+      "daily_gain_cap": {
+        "type": "float",
+        "description": "每人每天最多涨多少（防刷好感）",
+        "default": 6
+      },
+      "neutral": {
+        "type": "float",
+        "description": "很久没聊时慢慢回到的中间值",
+        "default": 50
+      },
+      "fade_half_days": {
+        "type": "float",
+        "description": "高于中间值时，很久没聊淡下去的半衰期（天，离线时间按压缩算）",
+        "default": 90
+      },
+      "forgive_half_days": {
+        "type": "float",
+        "description": "低于中间值时（生过气），慢慢消气的半衰期（天）",
+        "default": 10
+      },
+      "repeat_discount": {
+        "type": "bool",
+        "description": "同一天里好话越说越不值钱：第 n 次涨好感除以 (1+repeat_k·(n-1))（照 anima-brain）",
+        "default": true
+      },
+      "repeat_k": {
+        "type": "float",
+        "description": "重复打折的系数",
+        "default": 0.6
+      }
+    }
+  },
+  "afterthought": {
+    "type": "object",
+    "description": "心事：放不下的事会随时间和之后发生的事变化（越想越气、平复、后悔、放下）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "min_intensity": {
+        "type": "int",
+        "description": "多强烈的负面感受才变成心事（1 有一点 / 2 明显 / 3 很强烈）",
+        "default": 2
+      },
+      "reflect_hours": {
+        "type": "float",
+        "description": "每隔几小时把心事回想一遍（第二天早上也会想一遍）",
+        "default": 4
+      },
+      "interval_minutes": {
+        "type": "float",
+        "description": "后台多久检查一次有没有该回想的心事",
+        "default": 20
+      },
+      "max_step": {
+        "type": "float",
+        "description": "一次回想，心事的分量（0~3）最多变多少",
+        "default": 1.2
+      },
+      "max_days": {
+        "type": "float",
+        "description": "心事最多挂几天，过了就放下（她不记仇）",
+        "default": 4
+      },
+      "first_delay_seconds": {
+        "type": "float",
+        "description": "启动后多久开始第一次检查",
+        "default": 90
+      }
+    }
+  },
+  "inner": {
+    "type": "object",
+    "description": "心里记下的：一段聊天安静下来后，把她当时的感受和想法写成第一人称的心里话，存进长期记忆（memorix）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "settle_minutes": {
+        "type": "float",
+        "description": "这个聊天安静多少分钟后写（还在聊就等）",
+        "default": 10
+      },
+      "max_turns": {
+        "type": "int",
+        "description": "一直聊个不停时，攒够几轮她的回复就先写一段",
+        "default": 12
+      },
+      "max_chars": {
+        "type": "float",
+        "description": "一段心声最多几个字（一到三句；聊得多时可以长到 1.3 倍）",
+        "default": 80
+      },
+      "think_chars": {
+        "type": "int",
+        "description": "每轮保留多少字她回复前的思考（去掉怎么写回复的部分后）",
+        "default": 400
+      },
+      "context_minutes": {
+        "type": "float",
+        "description": "再往前带几分钟的聊天记录当背景",
+        "default": 10
+      },
+      "context_lines": {
+        "type": "int",
+        "description": "最多带几行聊天记录",
+        "default": 30
+      },
+      "store_memorix": {
+        "type": "bool",
+        "description": "存进 memorix（关掉就只留在本插件里，/佳树心情 心里话 能看到）",
+        "default": true
+      },
+      "scope_key": {
+        "type": "string",
+        "description": "memorix 的记忆范围（一般不用改，会自动跟 memorix 一致）",
+        "default": "aiocqhttp"
+      },
+      "interval_minutes": {
+        "type": "float",
+        "description": "后台多久看一次有没有该写的",
+        "default": 5
+      },
+      "first_delay_seconds": {
+        "type": "float",
+        "description": "启动后多久开始第一次看",
+        "default": 120
+      }
+    }
+  },
+  "chime": {
+    "type": "object",
+    "description": "心情影响群里主动插话（smart_chime_in 读取）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "min": {
+        "type": "float",
+        "description": "最低倍数（又委屈又没精神时）",
+        "default": 0.6
+      },
+      "max": {
+        "type": "float",
+        "description": "最高倍数（又开心又有精神时）",
+        "default": 1.3
+      }
+    }
+  },
+  "relation": {
+    "type": "object",
+    "description": "关系的几个侧面（信任/在意/边界）、谁一般多久来一次，和经历沉淀下来的倾向（怕被丢下、戒心）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "missing": {
+        "type": "bool",
+        "description": "兄长大人比平时晚很多还没来时，她会有点想他（心情偏一点，提示里说一句）；回来时可以带点小委屈",
+        "default": true
+      },
+      "drift_half_days": {
+        "type": "float",
+        "description": "很久没来往，关系的几个侧面多少天回归一半",
+        "default": 60
+      },
+      "daily_cap": {
+        "type": "float",
+        "description": "信任 / 在意 / 边界每个侧面每人每天最多动多少（0 = 不限；照 anima-brain）",
+        "default": 0.15
+      },
+      "hysteresis": {
+        "type": "float",
+        "description": "关系的话在门槛附近不来回跳：已经在说的，要多走这么多才不说",
+        "default": 0.035
+      }
+    }
+  },
+  "taste": {
+    "type": "object",
+    "description": "喜好自己长出来：她的感受来自一样具体的东西（分享的歌、小说、视频，聊到的游戏、吃的……）时记进账本，同一类东西在不同的日子里反复打动她，就长成她自己的喜欢（反复不舒服就是不喜欢）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "max_list": {
+        "type": "int",
+        "description": "提示里最多列几样喜欢/感兴趣的",
+        "default": 6
+      }
+    }
+  },
+  "recall": {
+    "type": "object",
+    "description": "想起旧事牵动心情：触景生情勾起一段情绪浓的旧记忆时，心情被轻轻拉向当时的感受（照 HCEM 的回忆反哺）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "min_strength": {
+        "type": "float",
+        "description": "当时的情绪至少多强（0~1）才牵动",
+        "default": 0.34
+      },
+      "weight": {
+        "type": "float",
+        "description": "牵动的权重（× 当时强度 × 褪色系数，按强度 1 推一下）",
+        "default": 0.6
+      }
+    }
+  }
+}

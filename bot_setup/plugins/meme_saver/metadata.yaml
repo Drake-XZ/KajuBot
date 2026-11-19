@@ -1,0 +1,5 @@
+﻿name: astrbot_plugin_meme_saver
+desc: 兄长一句话，佳树就把指定的图片/表情包收进自己的表情库；分类拿不准时会先问兄长
+short_desc: 聊天收藏表情包
+version: 1.2.0
+author: dsh

@@ -1,0 +1,48 @@
+{
+  "inject_prompt": {
+    "description": "每次回复前告诉她自己真能做到哪些事，并要求说到做到、失败如实说、做完汇报",
+    "type": "bool",
+    "default": true
+  },
+  "enable_follow_up": {
+    "description": "她答应/声称做了某件事却没真的做（或工具失败却说成功）时，后台补做或更正，并在群里汇报",
+    "type": "bool",
+    "default": true,
+    "hint": "覆盖：上网查资料、发QQ空间说说、存表情包、改称呼、定时提醒、记住重要的事。"
+  },
+  "retract_false_claims": {
+    "description": "没人让她存表情包、她也没存，却说\"存下来了\"时，发出去之前把这句删掉（不替她去存）",
+    "type": "bool",
+    "default": true
+  },
+  "delay_seconds": {
+    "description": "补做/更正前等几秒（让第一句先发出去）",
+    "type": "float",
+    "default": 3
+  },
+  "cooldown_seconds": {
+    "description": "同一个群/私聊里，两次补做之间至少隔多少秒",
+    "type": "float",
+    "default": 30
+  },
+  "max_steps": {
+    "description": "补做时最多调用几次工具",
+    "type": "int",
+    "default": 6
+  },
+  "timeout_seconds": {
+    "description": "补做总共最多多少秒，超了就告诉对方没查成",
+    "type": "float",
+    "default": 150
+  },
+  "attempt_seconds": {
+    "description": "补做时每个模型最多等多少秒，卡住就换挑模型顺序里的下一个",
+    "type": "float",
+    "default": 70
+  },
+  "max_providers": {
+    "description": "补做时最多试几个模型（按 kaju_basics 挑模型的顺序）",
+    "type": "int",
+    "default": 3
+  }
+}

@@ -1,0 +1,5 @@
+name: astrbot_plugin_group_peek
+desc: "看群：私聊里也能翻看她所在群的最近聊天（peek_group_chat 工具 + 问到群里的事时自动看一眼）"
+short_desc: 看群
+version: 1.1.1
+author: dsh

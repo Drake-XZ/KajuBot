@@ -1,0 +1,114 @@
+{
+  "enable": {
+    "type": "bool",
+    "description": "总开关：别人在B站私信她时她会回（只回互关的人）",
+    "default": true
+  },
+  "owner_bili_mid": {
+    "type": "string",
+    "description": "（旧的）兄长本人的B站 UID。2026-11-09 起以身份表为准（/佳树认人 认 B站 UID），身份表没登记时才用这里",
+    "default": ""
+  },
+  "owner_douyin_uid": {
+    "type": "string",
+    "description": "（旧的）兄长本人抖音号的 sec_uid。2026-11-09 起以身份表为准（/佳树认人 认 抖音 sec_uid），身份表没登记时才用这里",
+    "default": ""
+  },
+  "video_per_day": {
+    "type": "int",
+    "description": "兄长以外的人，每人每天最多让她看几条视频（多的要兄长在 QQ 同意；-1 = 不限）",
+    "default": 3
+  },
+  "notify_owner": {
+    "type": "bool",
+    "description": "有事要兄长决定时（回关、多看视频），在 QQ 私聊告诉兄长",
+    "default": true
+  },
+  "quiet_hours": {
+    "type": "string",
+    "description": "这几个小时不发通知给兄长（攒着，过了再发），格式 开始-结束，配置时区",
+    "default": "0-7"
+  },
+  "bili": {
+    "type": "object",
+    "description": "B站私信",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开着",
+        "default": true
+      },
+      "poll_seconds": {
+        "type": "float",
+        "description": "多久看一眼有没有新私信（秒）",
+        "default": 15
+      },
+      "fans_minutes": {
+        "type": "float",
+        "description": "多久看一眼有没有新关注她的人（分钟）",
+        "default": 10
+      },
+      "reply_timeout": {
+        "type": "float",
+        "description": "一轮最多等她多久（秒；看长视频要久一点）",
+        "default": 360
+      },
+      "settle_seconds": {
+        "type": "float",
+        "description": "她说完最后一句后安静多久算回完（秒）",
+        "default": 6
+      },
+      "line_gap": {
+        "type": "float",
+        "description": "她一句一句发，每句之间隔几秒",
+        "default": 1.2
+      },
+      "max_chars": {
+        "type": "int",
+        "description": "一条私信最多几个字，超过拆开发",
+        "default": 480
+      }
+    }
+  },
+  "douyin": {
+    "type": "object",
+    "description": "抖音私信（在 kaju_basics 的抖音常驻浏览器里开着私信页）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开着",
+        "default": true
+      },
+      "poll_seconds": {
+        "type": "float",
+        "description": "多久看一眼私信页（秒）",
+        "default": 20
+      },
+      "fans_minutes": {
+        "type": "float",
+        "description": "多久看一眼有没有新关注她的人（分钟）",
+        "default": 15
+      },
+      "line_gap": {
+        "type": "float",
+        "description": "她一句一句发，每句之间隔几秒",
+        "default": 1.5
+      },
+      "max_chars": {
+        "type": "int",
+        "description": "一条私信最多几个字，超过拆开发",
+        "default": 480
+      },
+      "send_images": {
+        "type": "bool",
+        "default": false,
+        "description": "上传她自己的表情包图片（2026-11-08 实测网页端上传的图对方收不到，所以默认关；开了就不发抖音表情）"
+      },
+      "stickers": {
+        "type": "bool",
+        "default": true,
+        "description": "她想发表情包时，在抖音里改发抖音表情库的表情（按表情包那一类的意思打字，点弹出来的建议表情；对方收得到）"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+name: astrbot_plugin_address_book
+desc: "称呼簿：“兄长大人”只叫主人，别人默认叫“名字+学长/学姐”（看 QQ 资料的性别），每人只能改自己的称呼（如“女王大人”）；群聊记录带 QQ 号和称呼，分清谁在说话"
+short_desc: 称呼簿
+version: 2.5.0
+author: dsh

@@ -1,0 +1,12 @@
+{
+  "owner_qq": {
+    "description": "（旧的）兄长大人本人的 QQ 号。2026-11-09 起以身份表为准（kaju_data 里的 self/people/people.json，/佳树认人 或 botctl people 改），身份表没登记时才用这里",
+    "type": "string",
+    "default": ""
+  },
+  "sex_overrides": {
+    "description": "手动指定性别（QQ 资料没写或写错时用），格式：QQ号=女, QQ号=男，用逗号隔开。女生默认叫“名字学姐”，男生和没写性别的叫“名字学长”",
+    "type": "string",
+    "default": ""
+  }
+}

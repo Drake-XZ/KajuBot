@@ -1,0 +1,470 @@
+{
+  "enable": {
+    "type": "bool",
+    "description": "启用记忆轻重",
+    "default": true
+  },
+  "working": {
+    "type": "object",
+    "description": "工作记忆：边聊边记刚才聊天的要点（弄清的事、图里有什么、自己的推断），下一轮回复前提醒她",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "turns": {
+        "type": "int",
+        "description": "每次整理备忘时看最近几轮对话",
+        "default": 6
+      },
+      "max_chars": {
+        "type": "int",
+        "description": "备忘最多多少字",
+        "default": 400
+      },
+      "ttl_minutes": {
+        "type": "float",
+        "description": "备忘多少分钟没更新就作废（话题早就过去了）",
+        "default": 90
+      },
+      "max_wait": {
+        "type": "float",
+        "description": "下一条消息来得太快、备忘还没整理完时，最多等几秒",
+        "default": 12
+      },
+      "timeout_seconds": {
+        "type": "float",
+        "description": "整理一次备忘的超时（秒）",
+        "default": 60
+      }
+    }
+  },
+  "scope_key": {
+    "type": "string",
+    "description": "memorix 的记忆库（scope），平台共用模式下是 aiocqhttp",
+    "default": "aiocqhttp"
+  },
+  "day_start_hour": {
+    "type": "int",
+    "description": "几点算新的一天（要和 kaju_life 一致，读它的聊天记录用）",
+    "default": 5
+  },
+  "interval_minutes": {
+    "type": "float",
+    "description": "后台多久整理一次（挑铭记、给记忆打分量、按遗忘曲线保护/遗忘）",
+    "default": 5
+  },
+  "timeout_seconds": {
+    "type": "float",
+    "description": "每次让模型打分的超时（秒）",
+    "default": 120
+  },
+  "annotate_hits": {
+    "type": "bool",
+    "description": "在 memorix 检索结果里标注\"很郑重\"/\"记得有点模糊了\"",
+    "default": true
+  },
+  "half_life_days": {
+    "type": "object",
+    "description": "遗忘曲线：没用过时的半衰期（天），每用上一次翻倍（最多 32 倍）",
+    "items": {
+      "g0": {
+        "type": "float",
+        "description": "琐碎闲聊",
+        "default": 4
+      },
+      "g1": {
+        "type": "float",
+        "description": "一般",
+        "default": 15
+      },
+      "g2": {
+        "type": "float",
+        "description": "要紧（约定、规矩、重要近况）",
+        "default": 90
+      },
+      "g3": {
+        "type": "float",
+        "description": "郑重（语重心长、真心话、气氛凝重）",
+        "default": 365
+      }
+    }
+  },
+  "keepsake": {
+    "type": "object",
+    "description": "铭记在心：从聊天记录里挑出郑重的话，给她看",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "min_chars": {
+        "type": "int",
+        "description": "多长的话才值得看（带\"记住/认真/希望你/难过…\"这类词的不限长度）",
+        "default": 10
+      },
+      "settle_seconds": {
+        "type": "float",
+        "description": "一段聊天安静多久后再整段看（看气氛要看整段）",
+        "default": 120
+      },
+      "group_needs_her": {
+        "type": "bool",
+        "description": "群聊只看她参与了、或者有人提到她的那几段",
+        "default": true
+      },
+      "max_inject": {
+        "type": "int",
+        "description": "每次最多给她看几条铭记",
+        "default": 4
+      },
+      "max_calls_per_round": {
+        "type": "int",
+        "description": "每轮最多调用几次模型挑铭记",
+        "default": 6
+      }
+    }
+  },
+  "paragraph": {
+    "type": "object",
+    "description": "给 memorix 的聊天记忆打分量",
+    "items": {
+      "max_batches_per_round": {
+        "type": "int",
+        "description": "每轮最多打几批（每批 6 条）",
+        "default": 4
+      }
+    }
+  },
+  "forget": {
+    "type": "object",
+    "description": "遗忘：分量一般/琐碎、保留强度低于阈值、记了足够久的聊天摘要，从 memorix 软删除（/记忆轻重 恢复 可找回）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用遗忘（关掉就只保护重要的，不删任何东西）",
+        "default": true
+      },
+      "threshold": {
+        "type": "float",
+        "description": "保留强度低于多少就忘（0~1）",
+        "default": 0.1
+      },
+      "min_age_days": {
+        "type": "float",
+        "description": "至少记多少天才可能忘",
+        "default": 7
+      },
+      "max_per_round": {
+        "type": "int",
+        "description": "每轮最多忘几条",
+        "default": 5
+      }
+    }
+  },
+  "fade": {
+    "type": "object",
+    "description": "褪色：细节比这件事本身忘得快。聊天记忆的细节清晰度降下来后，给她看的换成\"片段\"、再换成\"印象\"（原文仍留在 memorix 里）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用褪色",
+        "default": true
+      },
+      "detail_half_life_days": {
+        "type": "object",
+        "description": "细节清晰度的半衰期（天），每想起一次翻倍（最多 8 倍）",
+        "items": {
+          "g0": {
+            "type": "float",
+            "description": "琐碎闲聊",
+            "default": 2
+          },
+          "g1": {
+            "type": "float",
+            "description": "一般",
+            "default": 7
+          },
+          "g2": {
+            "type": "float",
+            "description": "要紧",
+            "default": 30
+          },
+          "g3": {
+            "type": "float",
+            "description": "郑重",
+            "default": 90
+          }
+        }
+      },
+      "emotion_slow": {
+        "type": "float",
+        "description": "当时情绪越强细节留得越久：半衰期 ×(1 + 情绪强度×这个值)，情绪强度 0~1",
+        "default": 1.0
+      },
+      "interference_fast": {
+        "type": "float",
+        "description": "同一个聊天里差不多的事越多越容易混：半衰期 ÷(1 + 干扰×这个值)，干扰 0~1",
+        "default": 0.5
+      },
+      "fragments_below": {
+        "type": "float",
+        "description": "清晰度低于这个褪成\"片段\"",
+        "default": 0.5
+      },
+      "gist_below": {
+        "type": "float",
+        "description": "清晰度低于这个只剩\"印象\"",
+        "default": 0.2
+      },
+      "max_per_round": {
+        "type": "int",
+        "description": "每轮最多褪几条（每条调用一次模型）",
+        "default": 3
+      }
+    }
+  },
+  "cue": {
+    "type": "object",
+    "description": "触景生情：对方一句话里的少见的词（名字、东西、“欺负”“我爱你”这种）和这个聊天里一段旧记忆对上时，那段记忆自己冒出来（memorix 这轮已经给的不算）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "threshold": {
+        "type": "float",
+        "description": "聊天摘要要多容易想起才冒出来（可检索性 0~1）",
+        "default": 0.5
+      },
+      "inner_threshold": {
+        "type": "float",
+        "description": "她自己的心里话（【佳树心里】）的门槛：感觉最容易被勾起来",
+        "default": 0.45
+      },
+      "min_cue": {
+        "type": "float",
+        "description": "线索至少多强（只对上常见的词不算）",
+        "default": 0.35
+      },
+      "min_age_hours": {
+        "type": "float",
+        "description": "至少是多少小时以前的记忆（刚聊过的不算“想起”）",
+        "default": 12
+      },
+      "memory_cooldown_hours": {
+        "type": "float",
+        "description": "同一段记忆多久内只冒出来一次",
+        "default": 72
+      },
+      "chat_cooldown_minutes": {
+        "type": "float",
+        "description": "同一个聊天里多久最多冒出来一次",
+        "default": 30
+      },
+      "moves_heart": {
+        "type": "bool",
+        "description": "触景生情时把那段记忆当时的感受交给 kaju_heart，轻轻牵动心情",
+        "default": true
+      }
+    }
+  },
+  "usage": {
+    "type": "object",
+    "description": "用上了就更牢",
+    "items": {
+      "cooldown_minutes": {
+        "type": "float",
+        "description": "同一条记忆多久内只算用一次（连着聊同一件事不重复算）",
+        "default": 30
+      }
+    }
+  },
+  "shelf": {
+    "type": "object",
+    "description": "珍藏的文件：兄长大人分享给她的文件按分量封存一段时间，之后才慢慢淡忘",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "keep_from": {
+        "type": "string",
+        "description": "收谁分享的文件：owner = 只收兄长大人本人（owner_qq）的；all = 谁的都收",
+        "options": [
+          "owner",
+          "all"
+        ],
+        "default": "owner"
+      },
+      "seal_days": {
+        "type": "object",
+        "description": "封存天数（这段时间一直记得清楚；之后按同样的天数做半衰期淡忘，每想起一次翻倍）",
+        "items": {
+          "g1": {
+            "type": "float",
+            "description": "普通（资料、随手转发）",
+            "default": 30
+          },
+          "g2": {
+            "type": "float",
+            "description": "要紧（读完情绪波动明显，或特意让她看）",
+            "default": 180
+          },
+          "g3": {
+            "type": "float",
+            "description": "郑重（语重心长，或读完波动非常大）",
+            "default": 365
+          }
+        }
+      },
+      "forget_below": {
+        "type": "float",
+        "description": "强度低于这个就不再出现在清单里（重读时也只记得个大概）",
+        "default": 0.2
+      },
+      "max_index": {
+        "type": "int",
+        "description": "聊天时最多列出几份珍藏的文件",
+        "default": 5
+      },
+      "content_chars": {
+        "type": "int",
+        "description": "每份最多存多少字的内容（当时读到的全文或读后笔记）",
+        "default": 4000
+      },
+      "carry_minutes": {
+        "type": "float",
+        "description": "翻出某份珍藏后，多少分钟内接着聊（不提文件名）也继续把内容给她（0 = 只在提到时给）",
+        "hint": "期间对方又说到文件里的词就重新计时",
+        "default": 20
+      },
+      "settle_seconds": {
+        "type": "float",
+        "description": "读完后等多少秒再评分量（等他把想说的话说完、心情判断出来）",
+        "default": 90
+      }
+    }
+  },
+  "loops": {
+    "type": "object",
+    "description": "未了的事：对方提过、还不知道后来怎么样的事（考试、面试、看病、出远门……），聊到相关的或日子近了给她看",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "用哪个模型看（空 = 记忆那一格 model_slots.json memory，再空用主模型）",
+        "default": ""
+      },
+      "group_needs_her": {
+        "type": "bool",
+        "description": "群里只看她在场、或有人提到她的那段",
+        "default": true
+      },
+      "max_inject": {
+        "type": "int",
+        "description": "每轮最多给她看几件",
+        "default": 3
+      },
+      "near_days": {
+        "type": "int",
+        "description": "离那天前后几天内算日子近",
+        "default": 2
+      },
+      "high_priority": {
+        "type": "float",
+        "description": "没碰到词、日子也不近时，分数到多少也给（要紧 8、很上心约 16；满分 20）",
+        "default": 15.0
+      },
+      "cooldown_hours": {
+        "type": "float",
+        "description": "没碰到词时，同一件事几小时内只给一次",
+        "default": 6
+      },
+      "stale_days": {
+        "type": "int",
+        "description": "日子过了几天还没下文就算过去了",
+        "default": 7
+      },
+      "seed_days": {
+        "type": "int",
+        "description": "第一次打开时补看最近几天的记录",
+        "default": 7
+      },
+      "seed_calls_per_round": {
+        "type": "int",
+        "description": "补看时每轮（每几分钟）最多看几段",
+        "default": 8
+      },
+      "reset_token": {
+        "type": "string",
+        "description": "换成一个新值 = 清掉记着的未了的事、按现在的提示词把最近几天重看一遍（只触发一次）",
+        "default": ""
+      },
+      "undated_days": {
+        "type": "float",
+        "description": "没日子的事几天没再提就算过去了",
+        "default": 14
+      },
+      "min_imp_near": {
+        "type": "int",
+        "description": "要紧程度不到这个数的小事，日子近了也不给，只在聊到时给",
+        "default": 5
+      }
+    }
+  },
+  "impress": {
+    "type": "object",
+    "description": "人物印象（11-19）：每天给最近常说话的人综合一份印象，聊天时代替 memorix 人物画像里的流水账",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "inject": {
+        "type": "bool",
+        "description": "把印象换进人物画像（关了只写不用）",
+        "default": true
+      },
+      "hour": {
+        "type": "int",
+        "description": "每天几点以后写（北京时间）",
+        "default": 4
+      },
+      "days": {
+        "type": "int",
+        "description": "看最近几天说的话",
+        "default": 14
+      },
+      "min_lines": {
+        "type": "int",
+        "description": "至少说过几句才写",
+        "default": 12
+      },
+      "refresh_lines": {
+        "type": "int",
+        "description": "上次写过的，又说了几句才重写",
+        "default": 10
+      },
+      "max_lines": {
+        "type": "int",
+        "description": "每人最多看几句",
+        "default": 80
+      },
+      "max_people": {
+        "type": "int",
+        "description": "一天最多写几个人",
+        "default": 8
+      }
+    }
+  }
+}

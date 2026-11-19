@@ -1,0 +1,403 @@
+{
+  "rebuttal": {
+    "type": "object",
+    "description": "被纠正提醒：对方引用/接着她的话纠正她时，提醒她先接住对方的意思，别沿用原来的说法",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "window_minutes": {
+        "type": "float",
+        "description": "多少分钟内的纠正算\"最近被纠正了几次\"",
+        "default": 120
+      }
+    }
+  },
+  "rewrite": {
+    "type": "object",
+    "description": "写手：主模型写草稿（或 main_role=brain 时只出指导）→ Gemini 整理成第四版要点卡 → 回复器 / 本地训练过的写手照卡写 → 核对（编了事/丢了信息/叫错人就再写一遍）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用（本地模型没开、超时、出错时都自动发原稿）",
+        "default": false
+      },
+      "private": {
+        "type": "bool",
+        "description": "私聊用",
+        "default": true
+      },
+      "group": {
+        "type": "bool",
+        "description": "群聊用",
+        "default": true
+      },
+      "base_url": {
+        "type": "string",
+        "description": "本地模型的 OpenAI 兼容地址",
+        "default": "http://127.0.0.1:11435/v1"
+      },
+      "card_model": {
+        "type": "string",
+        "description": "本地写手模型名（现在是 kaju-writer-p6-8b-r7k；回滚用 kaju-writer-p5-8b-r6 或 kaju-writer-p4-8b-k）",
+        "default": "kaju-writer-p4-8b-k"
+      },
+      "main_role": {
+        "type": "string",
+        "description": "主模型干什么：draft = 扮佳树写一整段草稿、再摘卡（原来的）；brain = 只当规划器（大脑）：不模仿她的语气，想清楚这一轮回不回、要表达什么（标签式“回答：…”“立场：…”），排成卡交给写手（2026-11-17 兄长定，kaju_core/voice/brain.py）。解析不了就当草稿照旧摘卡",
+        "default": "draft"
+      },
+      "emoji": {
+        "type": "string",
+        "description": "大脑模式下表情包谁挑：brain = 大脑看着表情包说明在指导后面写标记（原来的）；separate = 照 MaiBot：那段说明不给大脑，她的话写好以后由“表情包”那一格（kaju_data/accounts/model_slots.json 的 emoji）看着这句和心情挑一类（kaju_core/voice/emoji.py），发送照旧交给 meme_manager（2026-11-18 兄长定）",
+        "default": "brain"
+      },
+      "emoji_provider_id": {
+        "type": "string",
+        "description": "挑表情包用哪个模型（留空 = 用 model_slots.json 的 emoji 那一格；那一格也空 = 主模型）",
+        "default": ""
+      },
+      "emoji_timeout": {
+        "type": "float",
+        "description": "挑表情包最多等几秒（过了这次就不配图）",
+        "default": 10
+      },
+      "replyer": {
+        "type": "string",
+        "description": "大脑模式（main_role=brain）下谁来写她的话：local = 本地写手照卡写（原来的）；api = 照 MaiBot 的做法，API 大模型当回复器（她的性格 + 几条说话方式 + 最近 10 条聊天 + 大脑的指导 + 按场合挑的几句她说过的话，kaju_core/voice/replyer.py），没写成就退回本地写手（2026-11-18 兄长定；回放盲选 28:9）",
+        "default": "local"
+      },
+      "replyer_ctx_group": {
+        "type": "int",
+        "description": "回复器在群聊里看最近几行聊天（照 MaiBot 群聊 50 条；本地写手照旧 12 行；0 = 用写手那份的最后 10 行）",
+        "default": 50
+      },
+      "local_writer": {
+        "type": "bool",
+        "description": "用不用本机 Ollama 的写手。关了（兄长 11-18：不想再用本地写手）所有她的话都由 API 回复器写（要 replyer = api），回复器没写成就这次不说",
+        "default": true
+      },
+      "action_judge": {
+        "type": "bool",
+        "description": "群里没人叫她（插话 / 接着聊）、大脑说要回时，发之前让快模型看最后 6 条聊天再定一次回不回（照 MaiBot 的 planner_action_judge）",
+        "default": true
+      },
+      "action_judge_provider_id": {
+        "type": "string",
+        "description": "把关用的模型；空 = 用模型格子表里“fast”那一格",
+        "default": ""
+      },
+      "action_judge_timeout": {
+        "type": "float",
+        "description": "把关最多等几秒（没答上来照常回）；11-19 起 25（10 秒那天插话 4 轮 3 轮超时）",
+        "default": 25
+      },
+      "replan": {
+        "type": "bool",
+        "description": "群聊里大脑想的时候群里又来了消息，就带上新来的几条重想一遍（照 MaiBot；一轮最多一次，多一次主模型调用）",
+        "default": true
+      },
+      "replan_timeout": {
+        "type": "float",
+        "description": "重想一遍最多等几秒（没答上来就用原来的指导）",
+        "default": 45
+      },
+      "replyer_ctx_private": {
+        "type": "int",
+        "description": "回复器在私聊里看最近几行聊天（兄长：私聊可以相对少一点）",
+        "default": 20
+      },
+      "replyer_models": {
+        "type": "list",
+        "description": "回复器用哪些模型：kaju_data/accounts/text_models.json 里的名字前缀，从前往后试",
+        "default": [
+          "bb-api · claude-sonnet-5",
+          "hardysapi · claude-sonnet-5-5"
+        ]
+      },
+      "replyer_timeout": {
+        "type": "float",
+        "description": "回复器每个模型最多等几秒，过了换下一个",
+        "default": 20
+      },
+      "replyer_examples": {
+        "type": "int",
+        "description": "回复器提示里放几句她以前说过的话当例子（kaju_data/self/kaju_style/replyer_bank.json；0 = 不放）",
+        "default": 5
+      },
+      "replyer_example_min": {
+        "type": "float",
+        "description": "例子和对方这句至少多像才放（bge-m3 余弦；11-19 起只拿对方这句去比，太不像的宁可不放）",
+        "default": 0.5
+      },
+      "replyer_embed_url": {
+        "type": "string",
+        "description": "挑例子用的本机向量服务（bge-m3）地址",
+        "default": "http://127.0.0.1:11435"
+      },
+      "brain_character": {
+        "type": "bool",
+        "description": "大脑模式（main_role=brain）下，大脑要求里加上“她是什么样的人”（kaju_data/self/persona/character.md 第一个 ## 之前的条目）：让大脑按她的性格定这一轮要表达什么，说法照旧归写手（2026-11-18 兄长定；回放盲选过了再开）",
+        "default": false
+      },
+      "planner_skip": {
+        "type": "string",
+        "description": "规划器判“群里这句不用回”时：log = 只记、照样回；group = 群里真不说（私聊总是回）",
+        "default": "log"
+      },
+      "writer_system": {
+        "type": "string",
+        "description": "写手的系统提示，要和写手训练时一字不差：v4 = r6 及以前；v5 = 第 7 轮起（去掉“不说你”）。和 card_model 一起换",
+        "default": "v4"
+      },
+      "long_ctx": {
+        "type": "bool",
+        "description": "写手看长前文（聊天记录里最多 12 行 / 1000 字，带时间和日期；第 7 轮起的写手是照这个训的）。只换写手看的，出卡 / 核对照旧。和 card_model 一起换",
+        "default": false
+      },
+      "card_timeout_v4": {
+        "type": "float",
+        "description": "v4 出卡时每个 Gemini key 最多等几秒（超时换 gemini_keys.json 里的下一个；全不行就按“Gemini 挂了”处理：群里不说、私聊只说挂了）",
+        "default": 20
+      },
+      "max_tokens": {
+        "type": "int",
+        "description": "v4 写手一次最多生成多少 token：只防卡死，不是压长短（兄长：不要强行限制她的字数）",
+        "default": 1024
+      },
+      "timeout": {
+        "type": "float",
+        "description": "最多等本地模型几秒，超时发原稿",
+        "default": 15
+      },
+      "guard": {
+        "type": "bool",
+        "description": "重说后让当前模型核对一遍（建议开）",
+        "default": true
+      },
+      "guard_timeout": {
+        "type": "float",
+        "description": "核对最多等几秒，超时发原稿",
+        "default": 12
+      },
+      "group_ctx_lines": {
+        "type": "int",
+        "description": "群聊时给抽卡/写手/核对看这一句之前的几行群聊（和训练时一样取 8 行；0 = 只用她自己那段对话）",
+        "default": 8
+      },
+      "guard_provider_id": {
+        "type": "string",
+        "description": "核对用哪个提供方（空 = 当前默认；可填关了思考的 deepseek_nothink）",
+        "default": ""
+      },
+      "guard_backup_provider_id": {
+        "type": "string",
+        "default": "",
+        "description": "核对的后备提供方（空 = 没有后备）",
+        "hint": "核对先问 guard_provider_id，它超时或出错就把剩下的时间给这个。2026-11-13：核对 gemini_flash38（aigocode，抓编的事准）→ 后备 gemini（hardysapi，快）。"
+      },
+      "guard_first_share": {
+        "type": "float",
+        "default": 0.5,
+        "description": "有后备时第一个提供方最多用核对总时限的几成",
+        "hint": "至少 8 秒；剩下的给后备。"
+      },
+      "skip_when_late": {
+        "type": "float",
+        "description": "这条消息已经等了这么多秒（模型卡过、群里排队）就不重说、直接发原稿，省下 3~4 秒（0 = 总是重说）",
+        "default": 25
+      },
+      "max_chars": {
+        "type": "int",
+        "description": "原稿超过这么多字就不重说（长解释、查资料的结果）",
+        "default": 400
+      },
+      "record": {
+        "description": "记下每一次重说",
+        "type": "bool",
+        "default": true,
+        "hint": "上下文、草稿、要点卡、写手的完整提示和输出、核对结论、最后发出去的，记在 kaju_data\\self\\kaju_style\\rewrites\\日期.jsonl；以后出盲选题、改写、攒训练数据用。不影响回复。"
+      },
+      "record_days": {
+        "description": "重说记录留几天",
+        "type": "int",
+        "default": 60
+      },
+      "shadow_plan": {
+        "type": "bool",
+        "description": "影子规划器：每轮回复后拿同一份主模型输入在后台多写一份回复指导，只记不发（kaju_data\\self\\kaju_style\\plans）。11-18 起关：大脑模式（main_role=brain）上线后用不上了，开着每轮多调一次模型",
+        "default": false
+      },
+      "shadow_plan_timeout": {
+        "type": "float",
+        "description": "影子规划器每把 key 最多等几秒",
+        "default": 30
+      },
+      "retry": {
+        "description": "照卡写没过时再写几次",
+        "type": "int",
+        "default": 1,
+        "hint": "写手写出来不像回复、或者核对没过，就拿同一张要点卡再写；0 = 不重写。核对超时不重写。每多一次只在被拦的那些回复上多等 2~3 秒。"
+      },
+      "recard_after": {
+        "type": "int",
+        "default": 2,
+        "description": "同一张卡被核对拦几遍就带着问题重新出卡（0 = 不重出）",
+        "hint": "2026-11-13：卡把“午饭要好好吃哦”抽成“佳树吃过午饭了”，写 4 遍都被拦。重出时让 Gemini 逐条在草稿里找原句，只重出一次。"
+      },
+      "writer_only": {
+        "description": "只发写手写的话（v4）",
+        "type": "bool",
+        "default": true,
+        "hint": "2026-11-13 兄长定：不再发 DeepSeek 的草稿。回晚了、草稿带链接也照样过写手；核对几遍都没过发写手最后一遍；卡 / 写手根本没有就这次不说。关掉 = 以前那样，不行就发原稿。"
+      },
+      "guard_fail": {
+        "description": "核对几遍都没过时怎么办（只发写手的话时）",
+        "type": "string",
+        "default": "busy",
+        "options": [
+          "busy",
+          "silent",
+          "send_writer"
+        ],
+        "hint": "busy（默认，2026-11-15）：先让核对模型只改被拦的那一处、再核对一次，还不行就照卡说一句“这会儿在忙，等下再好好回”；silent：只试改错，不行就不说；send_writer：照发写手最后一遍。"
+      },
+      "guard_repair": {
+        "type": "bool",
+        "default": true,
+        "description": "核对几遍都没过时，先让核对模型只改被拦的那一处再核对一次",
+        "hint": "只许小改（相似度 ≥0.7、长短差不超过三成），原样返回或改多了都算没改成。"
+      },
+      "gemini_down_notify_minutes": {
+        "description": "Gemini 全挂了时，多少分钟内只告诉兄长一次",
+        "type": "float",
+        "default": 30,
+        "hint": "Gemini 的 key 全用不了时：她在群里、私聊、私信都不说话，由 DeepSeek 写一两句，用她的 QQ 私聊和抖音私信告诉兄长。"
+      },
+      "gemini_down_provider_id": {
+        "description": "Gemini 挂了时写通知用哪个提供方",
+        "type": "string",
+        "default": "deepseek"
+      }
+    }
+  },
+  "concrete": {
+    "type": "object",
+    "description": "聊作品说具体：聊书、动画、游戏、视频时（珍藏的内容在场、刚读了文件、或在问一部作品的看法），提醒用具体的情节、人物、原话说看法、句和句接得上；这一轮不加句长提醒、不在逗号处拆消息",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      }
+    }
+  },
+  "respond": {
+    "type": "object",
+    "description": "先回应，别当解说员：对方抱怨发泄时先哄一句再说原因办法；别用\"XX这会儿是真上火了呀\"这种描述对方的话开头",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      }
+    }
+  },
+  "rhythm": {
+    "type": "object",
+    "description": "聊天节奏：一句一条消息、句尾不打句号",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用：去掉句号，句号处换行（分段回复会把每行作为一条消息发出）",
+        "default": true
+      },
+      "max_lines": {
+        "type": "int",
+        "description": "一次回复最多拆成几条消息，超出的把最短的相邻两句用空格拼起来",
+        "default": 4
+      },
+      "split_long": {
+        "type": "int",
+        "description": "一条消息超过这么多字（不算标点）就在逗号处拆成两条（0 = 不拆）",
+        "hint": "只在引号、书名号外面、两边都至少 6 个字的逗号处拆",
+        "default": 0
+      },
+      "split_max_lines": {
+        "type": "int",
+        "description": "在逗号处拆长消息时，整条回复最多拆到几条",
+        "default": 5
+      },
+      "prompt_note": {
+        "type": "bool",
+        "description": "请求模型时追加一句说话节奏提醒",
+        "default": true
+      }
+    }
+  },
+  "bedtime": {
+    "type": "object",
+    "description": "深夜催睡限频：关心早点睡，但同一个人一晚只催一次左右（按 AstrBot 配置的时区算深夜）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "late_start_hour": {
+        "type": "int",
+        "description": "深夜开始时间（点）",
+        "default": 23
+      },
+      "late_end_hour": {
+        "type": "int",
+        "description": "深夜结束时间（点）",
+        "default": 5
+      },
+      "max_per_night": {
+        "type": "int",
+        "description": "同一个人每晚最多主动催几次",
+        "hint": "对方自己说困了/要睡了时的回应不受这个限制。",
+        "default": 1
+      },
+      "nag_chance": {
+        "type": "float",
+        "description": "还没催过时，一次回复里允许顺带关心的概率（0~1）",
+        "default": 0.3
+      },
+      "group_gap_minutes": {
+        "type": "float",
+        "description": "同一个群里催过一个人后，多少分钟内不催别人",
+        "default": 30
+      }
+    }
+  },
+  "asks": {
+    "type": "object",
+    "description": "问之前先听懂：回复里认真问了对方刚说过答案的事（\"跟我想的很接近，就是XX\"→\"是哪种想法呀？\"），发之前删掉那一行。只在回复带问句时多问一次模型（约 2 秒）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "groups": {
+        "type": "bool",
+        "description": "群聊也把关（默认只管私聊）",
+        "default": false
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "把关用的模型（留空 = 当前用的模型）",
+        "default": ""
+      },
+      "timeout": {
+        "type": "float",
+        "description": "最多等几秒，超时就照原样发",
+        "default": 6
+      }
+    }
+  }
+}

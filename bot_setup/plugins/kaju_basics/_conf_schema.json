@@ -1,0 +1,956 @@
+{
+  "guard": {
+    "type": "object",
+    "description": "账号白名单：只放行这些机器人 QQ 号的事件，防止协议端误桥接其它账号导致冒名发言",
+    "items": {
+      "allowed_self_ids": {
+        "type": "list",
+        "description": "允许的机器人 QQ 号（留空 = 不限制）",
+        "default": [
+          "555555555"
+        ]
+      }
+    }
+  },
+  "wake": {
+    "type": "object",
+    "description": "唤醒：群里提到昵称或戳一戳都当作叫她",
+    "items": {
+      "nicknames": {
+        "type": "list",
+        "description": "群里消息里出现这些词（不用 @）就当作叫她",
+        "default": [
+          "佳树"
+        ]
+      },
+      "poke": {
+        "type": "bool",
+        "description": "有人戳一戳她时当作叫她并回复",
+        "default": true
+      },
+      "poke_context_seconds": {
+        "type": "float",
+        "description": "群里被戳时，把戳她的人在这么多秒内（她上次说话之后）说的话一起给她看",
+        "default": 180
+      }
+    }
+  },
+  "image": {
+    "type": "object",
+    "description": "看图：群里有图时等图片描述写完再回复",
+    "items": {
+      "max_wait": {
+        "type": "float",
+        "description": "回复前最多等几秒，让刚发的图片描述完",
+        "default": 15
+      },
+      "keep_order": {
+        "type": "bool",
+        "description": "群聊记录按消息到达顺序排（图片描述得慢，不然会排到后发的话后面，她回那句话时看不到前面的图）",
+        "default": true
+      },
+      "own_image": {
+        "type": "bool",
+        "description": "她插话/接话回的那条消息自己带着图时，把这张图的描述补给她（不然她只看到配的那句话）",
+        "default": true
+      }
+    }
+  },
+  "media": {
+    "type": "object",
+    "description": "看视频/动图/文件/语音：视频截几帧交给看图模型描述（有声音再转文字），群里的动图拆帧描述，文件形式的图片当图片看",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "总开关",
+        "default": true
+      },
+      "video": {
+        "type": "bool",
+        "description": "看视频（直接发给她或引用的视频换成描述）",
+        "default": true
+      },
+      "group_video_preview": {
+        "type": "bool",
+        "description": "群里的视频一发就提前看（关着时群聊记录只写\"还没点开看\"，有人提到视频时再看最近那段）",
+        "default": false
+      },
+      "unseen_video_minutes": {
+        "type": "float",
+        "description": "群里没提前看的视频，多少分钟内有人提到\"视频\"还会补看",
+        "default": 30
+      },
+      "face": {
+        "type": "bool",
+        "description": "QQ 小黄脸表情写成 [表情：名字]（AstrBot 默认直接丢掉）",
+        "default": true
+      },
+      "video_scene_sampling": {
+        "type": "bool",
+        "description": "按场景变化挑代表画面，并分批读图；检测失败时退回均匀抽帧",
+        "default": true
+      },
+      "video_scene_frames": {
+        "type": "int",
+        "description": "长视频最多保留多少张代表画面（短视频最多16张；范围4至32）",
+        "default": 32
+      },
+      "video_sheet_frames": {
+        "type": "int",
+        "description": "每张拼图放几帧（默认4，保留单格可读性；范围1至9）",
+        "default": 4
+      },
+      "video_visual_chars": {
+        "type": "int",
+        "description": "每批画面观察记录的建议字数，保留重要时间点和清楚可读的文字",
+        "default": 400
+      },
+      "vision_provider_id": {
+        "type": "string",
+        "description": "专用视觉模型ID（本机为 local_qwen3_vl）；填了后不会在失败时自动改用云端模型。留空沿用原图片模型",
+        "default": ""
+      },
+      "gemini_eyes": {
+        "type": "bool",
+        "description": "图片、动图先交给 Gemini 看（密钥在 kaju_data/accounts/gemini_keys.json，从上往下用，没填就不走）：群聊记录里的图、直接发给她的图都是。它没看成时，群聊记录里的图换 image_provider_id / gif_provider_id 指定的模型，直接发给她的图照旧让写回复的模型自己看",
+        "default": true
+      },
+      "gemini_eyes_timeout": {
+        "type": "float",
+        "description": "Gemini 看一张图最多等几秒（每个 key 各等这么久，超时换下一个 key）。2026-11-12 兄长定放宽到 90：aigocode 中转看一张图有时要 70 多秒",
+        "default": 40
+      },
+      "omni": {
+        "type": "bool",
+        "description": "看视频、听歌先交给能同时看和听的模型（密钥在 kaju_data/accounts/omni.json，没填就不走），让她记下看的时候心里的感觉；走不了（太长、出错）自动退回本地流程",
+        "default": true
+      },
+      "omni_effort": {
+        "type": "string",
+        "description": "全模态模型想多久：none 最快（约 10 秒，容易看错）/ low（约 25 秒）/ medium / 留空用它默认的（最细，但一条要几分钟）",
+        "default": "low"
+      },
+      "omni_max_minutes": {
+        "type": "float",
+        "description": "超过这么多分钟的视频分段交给全模态模型（一段要压到 7MB 以内才能发，太长画面没法看）",
+        "default": 10.0
+      },
+      "omni_timeout": {
+        "type": "float",
+        "description": "全模态模型最多等多少秒；超时先改成不思考再问一次（约 10–20 秒），还不行才退回本地流程",
+        "default": 90.0
+      },
+      "omni_moments": {
+        "type": "int",
+        "description": "看完后交给她的“最有感觉的地方”最多几处（按感觉强弱挑，其余只算进心情）。给多了她会从头到尾挨个讲一遍",
+        "default": 2
+      },
+      "omni_segment_minutes": {
+        "type": "float",
+        "description": "超过 omni_max_minutes 的长视频分段看，每段大约几分钟",
+        "default": 6.0
+      },
+      "omni_max_segments": {
+        "type": "int",
+        "description": "长视频最多分几段；再长就照旧用本地流程",
+        "default": 6
+      },
+      "gif_provider_id": {
+        "type": "string",
+        "description": "群聊记录里的动图交给哪个模型看（本机填 local_qwen3_vl：手势这类细节比 DeepSeek 认得准，也快）。留空和图片用同一个",
+        "default": ""
+      },
+      "image_provider_id": {
+        "type": "string",
+        "description": "看图片、动图用的模型ID。留空沿用内置的图片描述模型",
+        "default": ""
+      },
+      "video_grid": {
+        "type": "int",
+        "description": "关闭场景选帧后截几乘几帧（3 = 9 帧）",
+        "default": 3
+      },
+      "video_grid_long": {
+        "type": "int",
+        "description": "关闭场景选帧后长视频截几乘几帧（4 = 16 帧）",
+        "default": 4
+      },
+      "video_long_seconds": {
+        "type": "float",
+        "description": "超过这么多秒算长视频",
+        "default": 120
+      },
+      "video_transcribe": {
+        "type": "bool",
+        "description": "视频有声音时用 AstrBot 的语音转文字听一遍（要先在 AstrBot 里配好并打开语音转文字）",
+        "default": true
+      },
+      "video_audio_seconds": {
+        "type": "float",
+        "description": "视频声音最多听前多少秒（0 = 全部听完）",
+        "default": 1800
+      },
+      "audio_chunk_seconds": {
+        "type": "float",
+        "description": "长视频的声音切成每段几秒分别转文字",
+        "default": 300
+      },
+      "video_speech_direct": {
+        "type": "int",
+        "description": "声音转出来的字不超过这么多就原样给她，再多让模型把画面和声音合起来写观后笔记",
+        "default": 500
+      },
+      "video_digest_chars": {
+        "type": "int",
+        "description": "视频观后笔记写多长（字）",
+        "default": 900
+      },
+      "video_max_mb": {
+        "type": "float",
+        "description": "超过这么大的视频不看（MB）",
+        "default": 200
+      },
+      "video_wait": {
+        "type": "float",
+        "description": "有人刚发了视频就叫她时，回复前最多等几秒让视频描述完",
+        "default": 45
+      },
+      "music": {
+        "type": "bool",
+        "description": "听音乐本身（音乐文件、B站音乐视频、对方问到歌的视频）：本机量速度、能量走势、像什么乐器，再翻成她听到的感觉",
+        "default": true
+      },
+      "music_data_dir": {
+        "type": "string",
+        "description": "听音乐用的模型目录（yamnet.onnx、musicnn.onnx、models\\beat_this）",
+        "default": "D:\\JiashuBot\\models\\music"
+      },
+      "music_python": {
+        "type": "string",
+        "description": "跑音乐分析用的 Python（留空 = 机器人自己的；要装 librosa、onnxruntime、soundfile）",
+        "default": ""
+      },
+      "music_max_seconds": {
+        "type": "float",
+        "description": "音乐最多听前多少秒（越长分析越占内存：5 分半约 1.3 GB）",
+        "default": 480
+      },
+      "music_timeout": {
+        "type": "float",
+        "description": "一首歌分析超过几秒就放弃",
+        "default": 180
+      },
+      "music_threads": {
+        "type": "int",
+        "description": "音乐分析用几个 CPU 线程",
+        "default": 2
+      },
+      "music_tag_min": {
+        "type": "float",
+        "description": "风格/乐器标签分数到多少才告诉她（低分的常常猜错，比如把流行、摇滚标成 techno）",
+        "default": 0.5
+      },
+      "music_note_chars": {
+        "type": "int",
+        "description": "听感写多长（字）",
+        "default": 160
+      },
+      "music_provider_id": {
+        "type": "string",
+        "description": "把测量结果翻成听感用的模型（留空 = 当前聊天模型）",
+        "default": ""
+      },
+      "music_max_mb": {
+        "type": "float",
+        "description": "超过这么大的音乐文件不听（MB）",
+        "default": 100
+      },
+      "max_edge": {
+        "type": "int",
+        "description": "截图拼图的最长边（像素）",
+        "default": 1280
+      },
+      "gif_frames": {
+        "type": "bool",
+        "description": "动图（GIF/动态WebP/APNG）按时间拆帧再看：每格标时间，停住的画面合一格，不动的当普通图（关掉就用AstrBot自带的3×3）",
+        "default": true
+      },
+      "gif_max_frames": {
+        "type": "int",
+        "description": "动图最多拆几格（2~16；排版有空位会多放一两格）",
+        "default": 8
+      },
+      "file_as_media": {
+        "type": "bool",
+        "description": "以文件形式发的图片/视频（比如 微信图片_xxx.png）当成普通图片/视频看",
+        "default": true
+      },
+      "file_image_max_mb": {
+        "type": "float",
+        "description": "文件形式的图片超过这么大就不当图片看（MB）",
+        "default": 20
+      },
+      "mface": {
+        "type": "bool",
+        "description": "QQ 商城表情当成图片看（AstrBot 默认直接丢掉）",
+        "default": true
+      },
+      "doc": {
+        "type": "bool",
+        "description": "读文字文件（txt/md/字幕/代码、网页、Word .docx、PDF、电子书 .epub）：直接发给她或引用的文件读内容，群聊记录写文件名 + 开头几句",
+        "default": true
+      },
+      "doc_max_mb": {
+        "type": "float",
+        "description": "超过这么大的文件不读（MB）",
+        "default": 30
+      },
+      "doc_direct_chars": {
+        "type": "int",
+        "description": "不超过这么多字的文件直接给她看全文；更长的先让模型读完写读后笔记",
+        "default": 4000
+      },
+      "doc_read_chars": {
+        "type": "int",
+        "description": "长文件最多读前多少字（再长的只读前面这些）",
+        "default": 80000
+      },
+      "doc_digest_chars": {
+        "type": "int",
+        "description": "读后笔记写多长（字）",
+        "default": 1200
+      },
+      "doc_progressive": {
+        "type": "bool",
+        "description": "长篇故事（电子书、有章节、对话多）像人一样一段一段读（kaju_learn）：当场读开头，后面在后台按她的速度慢慢读",
+        "default": true
+      },
+      "doc_progressive_chars": {
+        "type": "int",
+        "description": "超过这么多字的故事才一段一段读",
+        "default": 6000
+      },
+      "video_progressive": {
+        "type": "bool",
+        "description": "长视频边看边想（kaju_learn）：按时间切成几段，一段一段看，每段只知道看到的部分",
+        "default": true
+      },
+      "video_progressive_seconds": {
+        "type": "float",
+        "description": "超过这么长（秒）的视频才边看边想",
+        "default": 240
+      },
+      "video_progressive_window": {
+        "type": "float",
+        "description": "边看边想时一段多长（秒；声音也按这个切开转写）",
+        "default": 180
+      },
+      "video_progressive_max": {
+        "type": "int",
+        "description": "边看边想最多切几段（再长的视频每段就长一点）",
+        "default": 8
+      },
+      "doc_timeout": {
+        "type": "float",
+        "description": "写读后笔记最多等几秒（超时就只给她看开头和结尾）",
+        "default": 150
+      },
+      "doc_group_excerpt": {
+        "type": "int",
+        "description": "群聊记录里文件后面带开头几个字（0 = 只写文件名）",
+        "default": 120
+      },
+      "bili": {
+        "type": "bool",
+        "description": "看 B 站视频链接和 QQ 分享卡片：可下载视频分析代表画面与声音；下载不了时退回字幕、封面和页面信息",
+        "default": true
+      },
+      "bili_cover": {
+        "type": "bool",
+        "description": "B 站视频的封面交给看图模型描述一下",
+        "default": true
+      },
+      "bili_comments": {
+        "type": "int",
+        "description": "看B站视频时顺带看几条高赞评论（0 = 不看评论区）",
+        "default": 4
+      },
+      "bili_comments_full": {
+        "type": "int",
+        "description": "对方提到\"评论/热评/楼中楼\"时多看几条评论，回复多的几楼也翻开看",
+        "default": 10
+      },
+      "bili_danmaku": {
+        "type": "int",
+        "description": "对方提到\"弹幕\"时按视频时间挑几条弹幕给她看（0 = 不读弹幕）",
+        "default": 12
+      },
+      "relook": {
+        "type": "bool",
+        "description": "补看：问到刚看过的视频里某个时间点（2:10那里/第30秒/开头/结尾），回去把那一段截大图再看一遍",
+        "default": true
+      },
+      "relook_minutes": {
+        "type": "float",
+        "description": "看完视频多少分钟内还能补看（文件还在才行；B站视频看完约2小时删）",
+        "default": 60
+      },
+      "relook_frames": {
+        "type": "int",
+        "description": "补看一个时间点截几帧（前后各约2秒；2至9）",
+        "default": 4
+      },
+      "relook_frames_long": {
+        "type": "int",
+        "description": "补看一段（超过12秒）截几帧（2至9）",
+        "default": 6
+      },
+      "relook_chars": {
+        "type": "int",
+        "description": "补看记录最多多少字",
+        "default": 250
+      },
+      "bili_recent_minutes": {
+        "type": "float",
+        "description": "看完视频多少分钟内问\"弹幕\"还能翻出那个视频的弹幕",
+        "default": 60
+      },
+      "bili_timeout": {
+        "type": "float",
+        "description": "打开 B 站页面最多等几秒",
+        "default": 15
+      },
+      "bili_download": {
+        "type": "bool",
+        "description": "下载最低画质（360P）的 B 站视频来看（画面 + 整段声音），看完过一阵自动删",
+        "default": true
+      },
+      "bili_max_minutes": {
+        "type": "float",
+        "description": "超过这么多分钟的 B 站视频不下载（只看页面）",
+        "default": 40
+      },
+      "bili_keep_hours": {
+        "type": "float",
+        "description": "下载的 B 站视频看完后留几小时（再问起不用重新下），之后自动删",
+        "default": 2
+      },
+      "wait_notice": {
+        "type": "bool",
+        "description": "视频要下载/看一会儿时（抖音、B 站视频、长视频文件、音乐），先让本地写手照卡片说一句（不是固定的句子；写手没开就不说）",
+        "default": true
+      },
+      "wait_notice_timeout": {
+        "type": "float",
+        "description": "先说的那一句最多等写手几秒，超时就不说",
+        "default": 8
+      },
+      "wait_notice_seconds": {
+        "type": "float",
+        "description": "直接发来的视频超过这么多秒才先回一句",
+        "default": 90
+      },
+      "bili_download_parts": {
+        "type": "int",
+        "description": "B 站视频分几段同时下载（服务器单条连接常常很慢；1 = 不分段）",
+        "default": 4
+      },
+      "bili_parts_min_mb": {
+        "type": "float",
+        "description": "超过这么多 MB 才分段下载",
+        "default": 4
+      },
+      "bili_download_timeout": {
+        "type": "float",
+        "description": "下载一个 B 站视频最多等几秒",
+        "default": 180
+      },
+      "bili_cookie": {
+        "type": "string",
+        "description": "B站登录 Cookie（旧办法，可不填）：现在用 /佳树B站登录 扫码登录她自己的小号，扫过码就不看这里",
+        "hint": "浏览器登录 B 站后，按 F12 → 应用(Application) → Cookie → https://www.bilibili.com，把 SESSDATA 和 buvid3 两项的值按 SESSDATA=值; buvid3=值 的格式填进来。相当于你的登录凭证，别发给别人；过期了重新填。只会发给 api.bilibili.com",
+        "default": ""
+      },
+      "bili_sub_tries": {
+        "type": "int",
+        "description": "向 B 站要字幕最多问几次（它常常塞别的视频的字幕过来，串了的不用；问多了也没用，别调太大）",
+        "default": 2
+      },
+      "bili_direct_chars": {
+        "type": "int",
+        "description": "字幕不超过这么多字就整段给她看，再长让模型写观后笔记",
+        "default": 1500
+      },
+      "bili_digest_chars": {
+        "type": "int",
+        "description": "观后笔记写多长（字）",
+        "default": 900
+      },
+      "douyin": {
+        "type": "bool",
+        "description": "看抖音链接：开本机 Chrome（后台不显示窗口）打开视频页，下载最低画质按看视频的办法看完；图文看前几张图。弹验证、要登录就老实说没看成",
+        "default": true
+      },
+      "douyin_browser": {
+        "type": "string",
+        "description": "用哪个浏览器（chrome / msedge），装 Playwright 时不用另外下浏览器",
+        "default": "chrome"
+      },
+      "douyin_use_login": {
+        "type": "bool",
+        "description": "抖音小号登录着时，看抖音链接也用小号的浏览器（评论看得全）",
+        "default": true
+      },
+      "douyin_keep": {
+        "type": "bool",
+        "description": "抖音小号扫码后，后台一直开着一个看不见的 Chrome（她的资料夹，停在抖音页面上）帮小号保持登录；看抖音时借它开标签页",
+        "default": true
+      },
+      "douyin_keep_check_minutes": {
+        "type": "float",
+        "description": "多久问一次抖音小号还登录着没有（分钟）",
+        "default": 30
+      },
+      "douyin_keep_refresh_hours": {
+        "type": "float",
+        "description": "常驻浏览器停着的抖音页多久刷新一次（小时）",
+        "default": 2
+      },
+      "douyin_notify_owner": {
+        "type": "bool",
+        "description": "抖音小号登录掉了时私聊告诉兄长（三天最多一次）",
+        "default": true
+      },
+      "fetch_watch": {
+        "type": "bool",
+        "description": "她自己拿抓网页工具去看抖音 / B站视频链接时（比如让她再看一次之前发的），改成真的去看（看画面、看图），不只读网页文字",
+        "default": true
+      },
+      "douyin_timeout": {
+        "type": "float",
+        "description": "等抖音页面给出作品信息最多几秒",
+        "default": 30
+      },
+      "douyin_max_minutes": {
+        "type": "float",
+        "description": "超过多少分钟的抖音视频不下载（只看页面）",
+        "default": 20
+      },
+      "douyin_max_mb": {
+        "type": "float",
+        "description": "抖音视频超过多少 MB 不下载",
+        "default": 60
+      },
+      "douyin_images": {
+        "type": "int",
+        "description": "图文作品最多看几张图",
+        "default": 4
+      },
+      "douyin_comments": {
+        "type": "int",
+        "description": "给她看几条高赞评论（0 = 不看评论）",
+        "default": 6
+      },
+      "video_prompt": {
+        "type": "text",
+        "description": "视频描述提示词（留空用默认；{duration} = 时长，{count} = 帧数）",
+        "default": ""
+      }
+    }
+  },
+  "stable_prefix": {
+    "type": "object",
+    "description": "稳定前缀：把每轮会变的插件提示挪到本轮消息末尾（不存进历史），让聊天历史能命中缓存",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "stable_hours": {
+        "type": "float",
+        "description": "插件提示连续多少小时没变，才留在系统提示里（否则挪到本轮消息末尾）",
+        "default": 4
+      }
+    }
+  },
+  "chat_tools": {
+    "type": "object",
+    "description": "平常聊天不给她的工具（只影响 QQ 消息触发的回复；定时提醒、后台任务照常能用）",
+    "items": {
+      "hide": {
+        "type": "list",
+        "description": "工具名。send_message_to_user：她会写好回复后又用它把同一段话发一遍，还会把 &&表情标签&& 原样发出去",
+        "default": [
+          "send_message_to_user",
+          "memory_*_admin"
+        ],
+        "hint": "可以写通配符（memory_*_admin = memorix 的 12 个管理工具，约 1 万 token，平常聊天用不上）。"
+      }
+    }
+  },
+  "stt": {
+    "type": "object",
+    "description": "本地语音转文字（免费，不联网）：sherpa-onnx + SenseVoice int8，替代欠费的硅基流动。语音消息和看视频听声音都用它",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用本地语音转文字",
+        "default": true
+      },
+      "make_default": {
+        "type": "bool",
+        "description": "设成 AstrBot 默认的语音转文字（改 provider_stt_settings.provider_id = local_sensevoice）",
+        "default": true
+      },
+      "model_dir": {
+        "type": "string",
+        "description": "SenseVoice 模型文件夹（里面有 model.int8.onnx、tokens.txt）",
+        "default": "D:\\JiashuBot\\models\\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
+      },
+      "vad_model": {
+        "type": "string",
+        "description": "silero VAD 模型（长音频按停顿切句用；留空就按固定长度切）",
+        "default": "D:\\JiashuBot\\models\\silero_vad.onnx"
+      },
+      "threads": {
+        "type": "int",
+        "description": "识别用几个 CPU 线程",
+        "default": 4
+      },
+      "max_seconds": {
+        "type": "float",
+        "description": "一句最长几秒（更长的切开再识别）",
+        "default": 25
+      },
+      "idle_minutes": {
+        "type": "float",
+        "description": "多少分钟没用就先把模型从内存里放掉（约 300 MB，下次用到再加载，多等 1~2 秒；0 = 一直留着）",
+        "default": 10
+      }
+    }
+  },
+  "ollama": {
+    "type": "object",
+    "description": "本地模型服务一直开着：记忆的向量模型 bge-m3 和看图的 qwen3-vl 都跑在便携 Ollama 上（不用硅基流动）。没开就自动拉起",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用（插件加载时和之后每隔一阵检查一次）",
+        "default": true
+      },
+      "host": {
+        "type": "string",
+        "description": "地址",
+        "default": "127.0.0.1"
+      },
+      "port": {
+        "type": "int",
+        "description": "端口",
+        "default": 11435
+      },
+      "script": {
+        "type": "string",
+        "description": "启动脚本（runtime.ps1 -Action Start，可以重复执行）",
+        "default": "D:\\JiashuBot\\local_vision\\runtime.ps1"
+      },
+      "check_seconds": {
+        "type": "float",
+        "description": "多少秒检查一次（启动失败的话 5 分钟后再试）",
+        "default": 60
+      },
+      "prewarm_embed": {
+        "type": "string",
+        "description": "私聊来消息或群里有人叫她时，先把这个向量模型加载上（闲置 10 分钟会卸载，冷启动约 2 秒；留空 = 不预热）",
+        "default": "bge-m3"
+      }
+    }
+  },
+  "llm_deadline": {
+    "type": "object",
+    "description": "请求时限：DeepSeek 卡住时会一直发空行保活，普通超时管不住。一次模型请求超过这么多秒没返回就取消重发",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "timeout": {
+        "type": "float",
+        "description": "每次请求最多等几秒（平时 2~16 秒；写日记约 10 秒）",
+        "default": 60
+      },
+      "hedge_after": {
+        "type": "float",
+        "description": "过了几秒还没回，就同样的请求再发一份一起等，谁先回用谁（DeepSeek 偶尔卡一分钟；0 = 不发；本地模型不发）",
+        "default": 15
+      }
+    }
+  },
+  "model_router": {
+    "type": "object",
+    "description": "挑主模型（1.34.0）：按最近成绩每条消息现排主模型和后备的顺序；连着失败的先冷却、定时探测；私聊/问句/长消息用高思考档。质量分、价格、思考档在 kaju_data/accounts/model_router.json",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用（关了就照 AstrBot 配置里写死的顺序）",
+        "default": true
+      },
+      "budget_high": {
+        "type": "float",
+        "description": "私聊、问句、长消息：最近中位耗时超过这么多秒的排到后面",
+        "default": 25
+      },
+      "budget_low": {
+        "type": "float",
+        "description": "群里闲聊：最近中位耗时超过这么多秒的排到后面",
+        "default": 12
+      },
+      "long_chars": {
+        "type": "int",
+        "description": "群里一条消息至少这么多字算长消息（用高思考档）",
+        "default": 30
+      },
+      "price_weight": {
+        "type": "float",
+        "description": "价格扣分的权重：分 = 质量 - 价格×这个（0 = 不看价格）",
+        "default": 0.5
+      },
+      "think_bonus": {
+        "type": "float",
+        "description": "思考档对上这条想要的（high/low）加几分",
+        "default": 1.0
+      },
+      "direct_want": {
+        "type": "string",
+        "description": "心情、记忆、核对这些直接调主模型的按哪档挑（high / low）",
+        "default": "high"
+      },
+      "fail_streak": {
+        "type": "int",
+        "description": "同一个账号连着失败几次就冷却",
+        "default": 2
+      },
+      "cool_minutes": {
+        "type": "float",
+        "description": "冷却几分钟（期间成功一次就提前解除）",
+        "default": 10
+      },
+      "probe_minutes": {
+        "type": "float",
+        "description": "每隔几分钟用“回一个字”探一下冷却中的 / 好久没用的账号",
+        "default": 10
+      },
+      "log_choice": {
+        "type": "bool",
+        "description": "每条消息在日志里写一行挑了谁",
+        "default": true
+      }
+    }
+  },
+  "burst": {
+    "type": "object",
+    "description": "私聊连发合并：对方连着发几条（一句话、一张图、再补一句）时，等他说完合成一轮回一次，不再每条各回一遍",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "platforms": {
+        "type": "list",
+        "description": "哪些平台的私聊（aiocqhttp = QQ；测试时可加 webchat）",
+        "default": [
+          "aiocqhttp"
+        ]
+      },
+      "quiet_seconds": {
+        "type": "float",
+        "description": "每条私聊先等几秒，看对方还发不发（0 = 不等，只在要回时把已经到了的并进来）",
+        "default": 2
+      },
+      "typing_grace": {
+        "type": "float",
+        "description": "QQ 提示\"对方正在输入\"后再多等几秒",
+        "default": 4
+      },
+      "max_hold": {
+        "type": "float",
+        "description": "从这一串第一条算起最多等几秒就回",
+        "default": 12
+      },
+      "max_total": {
+        "type": "float",
+        "description": "要回时后面又来了消息就并过去一起回，但第一条已经等了这么多秒就先回了",
+        "default": 30
+      },
+      "catch_up_wait": {
+        "type": "float",
+        "description": "要回时发现后面一条刚到、还没排进来，最多等它几秒（等到了就一起回）",
+        "default": 3
+      },
+      "notes": {
+        "type": "bool",
+        "description": "提醒她：这几条是连着发的要合起来回；对方是在她上一条回复发出去之前打的字，别把上一条再说一遍",
+        "default": true
+      },
+      "late_merge": {
+        "type": "bool",
+        "default": true,
+        "description": "回复写好、还没发时对方又发了：这句不发，并到新来的那条一起回",
+        "hint": "看两次：主模型草稿刚回来、写手写完核对过了。2026-11-13 兄长：第一句等模型 99 秒，第二句在那期间到了，她一条一条回。"
+      },
+      "late_max_total": {
+        "type": "float",
+        "default": 180,
+        "description": "一串消息从第一条起超过这么多秒就先回，不再往后并",
+        "hint": "对方一直隔一会儿发一句、模型又慢时，免得她一直不回。"
+      }
+    }
+  },
+  "quote": {
+    "type": "object",
+    "description": "离得远了就引用：她这次回的那条消息和回复之间已经隔了别的消息（对方又发的、别人发的、她自己刚发的几句），就用 QQ 的引用带上那条（分段发时只挂在第一句上）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "platforms": {
+        "type": "list",
+        "description": "哪些平台（aiocqhttp = QQ）",
+        "default": [
+          "aiocqhttp"
+        ]
+      },
+      "private_gap": {
+        "type": "int",
+        "description": "私聊：中间隔了几条就引用（0 = 私聊不引用）",
+        "default": 1
+      },
+      "group_gap": {
+        "type": "int",
+        "description": "群聊：中间隔了几条就引用（只在有人叫她、或接着跟她说话时；她自己插话不引用；0 = 群聊不引用）",
+        "default": 2
+      }
+    }
+  },
+  "bili_login": {
+    "type": "object",
+    "description": "B站小号扫码登录：私聊发 /佳树B站登录 扫码；每天自动续期，续不上才私聊兄长重新扫",
+    "items": {
+      "check_hours": {
+        "type": "float",
+        "description": "隔多少小时问一次 B 站要不要刷新 Cookie",
+        "default": 20
+      },
+      "notify_owner": {
+        "type": "bool",
+        "description": "登录掉了私聊告诉兄长大人（三天最多一次）",
+        "default": true
+      }
+    }
+  },
+  "browse": {
+    "type": "object",
+    "description": "有许可时自己刷B站：兄长大人说\"去刷会儿B站吧\"（或 /佳树刷B站），她在后台按自己的口味挑几个视频看完，心里记下；只看，不点赞不评论",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开",
+        "default": true
+      },
+      "douyin": {
+        "type": "bool",
+        "description": "也可以刷抖音（兄长让她刷抖音时；登录了小号用小号刷精选，没登录也能刷）",
+        "default": true
+      },
+      "minutes": {
+        "type": "float",
+        "description": "兄长没说刷多久时，刷几分钟",
+        "default": 20
+      },
+      "max_minutes": {
+        "type": "float",
+        "description": "一次最多刷几分钟",
+        "default": 60
+      },
+      "max_videos": {
+        "type": "int",
+        "description": "一次最多看几个视频",
+        "default": 4
+      },
+      "max_video_minutes": {
+        "type": "float",
+        "description": "超过多少分钟的视频不点（看视频很占显卡）",
+        "default": 12
+      },
+      "daily_limit": {
+        "type": "int",
+        "description": "一天最多刷几次（凌晨 5 点换天）",
+        "default": 5
+      },
+      "note_hours": {
+        "type": "float",
+        "description": "刷完后多少小时内，兄长私聊她时提示里有\"你自己刷B站看到的\"",
+        "default": 6
+      },
+      "note_turns": {
+        "type": "int",
+        "description": "这段提示最多给她看几轮",
+        "default": 6
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "挑视频用的模型（留空用当前聊天模型）",
+        "default": ""
+      },
+      "share": {
+        "type": "bool",
+        "description": "刷完主动私聊兄长大人一两句 + 链接：她特别想说的那个（感受够强）",
+        "default": true
+      },
+      "report": {
+        "type": "bool",
+        "description": "没有特别想说的，也挑印象最深的那个跟兄长说一声刷完了（都平平淡淡就不说）",
+        "default": true
+      },
+      "share_per_day": {
+        "type": "int",
+        "description": "一天最多主动说几次（每刷完一次最多说一次）",
+        "default": 5
+      },
+      "share_min_intensity": {
+        "type": "int",
+        "description": "感受多强才主动说（1 有一点 / 2 明显 / 3 很强烈）",
+        "default": 2
+      },
+      "share_link": {
+        "type": "bool",
+        "description": "说完附上视频链接",
+        "default": true
+      },
+      "quiet_start": {
+        "type": "int",
+        "description": "几点以后不主动发（和 quiet_end 一样表示不限）",
+        "default": 23
+      },
+      "quiet_end": {
+        "type": "int",
+        "description": "早上几点以前不主动发",
+        "default": 8
+      },
+      "share_skip_minutes": {
+        "type": "float",
+        "description": "兄长这么多分钟内刚跟她聊过就不另外发（聊天里会提到）",
+        "default": 3
+      },
+      "pause_seconds": {
+        "type": "float",
+        "description": "有人这么多秒内找她说过话，就先别开下一个视频（最多等 2 分钟）",
+        "default": 20
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "enabled": {
+    "description": "启用看群",
+    "type": "bool",
+    "default": true
+  },
+  "auto_inject": {
+    "description": "私聊里问到群里的事时，自动把群里最近记录塞给她",
+    "type": "bool",
+    "default": true
+  },
+  "trigger_regex": {
+    "description": "触发自动看群的正则",
+    "type": "string",
+    "default": "群里|群聊|那个群|群友|(?:群|大家|他们|她们|同学们?|朋友们).{0,8}(?:聊|玩|说|干|嗨|吵|讨论|发)"
+  },
+  "auto_count": {
+    "description": "自动看群时看最近多少条",
+    "type": "int",
+    "default": 30
+  },
+  "auto_caption_images": {
+    "description": "自动看群时描述最后几张图（每张一次模型调用）",
+    "type": "int",
+    "default": 2
+  },
+  "default_count": {
+    "description": "工具默认看多少条",
+    "type": "int",
+    "default": 40
+  },
+  "max_count": {
+    "description": "工具最多看多少条",
+    "type": "int",
+    "default": 100
+  },
+  "caption_images": {
+    "description": "工具描述最后几张图",
+    "type": "int",
+    "default": 4
+  },
+  "max_hours": {
+    "description": "只看最近多少小时内的消息",
+    "type": "float",
+    "default": 12
+  },
+  "send_enabled": {
+    "description": "允许她去群里发消息（send_group_message）",
+    "type": "bool",
+    "default": true
+  },
+  "send_allow_members": {
+    "description": "非管理员（群成员）私聊里也能让她去群里发消息",
+    "type": "bool",
+    "default": false,
+    "hint": "默认只有管理员能让她去群里说话。"
+  },
+  "send_hourly_limit": {
+    "description": "非管理员每小时最多让她往群里发几次",
+    "type": "int",
+    "default": 5
+  }
+}

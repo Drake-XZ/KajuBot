@@ -1,0 +1,152 @@
+# memorix v1.4.0 的本地改动（插件更新后会丢，需要重新打上）
+# memorix/services/person_fact_writeback_service.py: 提取用户信息的提示词加第 6 条——聊角色/别人的话不算用户本人的事实
+# （2026-10-30 它把"老师当然不会对喜欢自己的学生表示厌恶"记成了"林一是老师"；同一模型上测试：旧提示词 80 次错 9 次，新提示词 0 次，真实的个人信息照常记下）
+# memorix/core/storage/vector_store.py: add() 拒绝 NaN/Inf 向量（嵌入请求失败时 api_adapter 返回 NaN，原来会被当成已就绪存进去；2026-11-01 硅基流动欠费后存进了 69 条，2026-11-02 已用本地 bge-m3 原位重算，备份 _backup\memorix\before-nan-repair-20261102）
+# memorix/amemorix/bootstrap.py: 启动时 load() 后调 warmup_index(force_train=False)，把 vectors.bin 回放进检索索引（原版这条启动路径不调，每次启动后向量检索都是空的 "Indices are empty"，只能按关键词找；2026-11-02 发现）
+# memorix/memory_injection.py: 每条消息自动带上记忆时，命中的那几条也排进反馈纠错（原版只有 search_memory 工具查到的才排；她几乎不主动调它，所以开了 integration.feedback_correction_enabled 也等于没开）。后台 create_task，不耽误回复（2026-11-13）
+# _conf_schema.json: integration 里加 feedback_correction_window_hours（原版 schema 没有，存配置时被丢掉，窗口只能是默认 12 小时；2026-11-13 设成 3）
+# memorix/providers/astrbot_provider_bridge.py: 没单独填 chat_provider_id 时，先照她的“记忆”那一格（kaju_data/accounts/model_slots.json 的 memory，kaju_core/slots.py）从前往后试（每个 60 秒），都不行再用原来的当前聊天模型；单独填了就照旧（2026-11-18 兄长：“接上”）
+# 打补丁: cd <core>\data\plugins\astrbot_plugin_memorix && git apply --ignore-whitespace <本文件>  (或 patch -p1 < 本文件)，再重载插件
+--- a/memorix/services/person_fact_writeback_service.py
++++ b/memorix/services/person_fact_writeback_service.py
+@@ -243,6 +243,7 @@
+ 3. 具有相对稳定性，可以作为长期记忆保存。
+ 4. 用简洁中文陈述句表达。
+ 5. 如果用户原始发言中出现“我/我的/自己”，默认指目标人物，请改写成关于目标人物的第三人称事实。
++6. 用户在聊别人或作品（动漫、游戏、小说）里的角色时（比如“老师”“妃咲”“五条老师”“女王大人”做了什么、会怎样），那些话说的是角色或别人，不是目标人物本人，不要写成目标人物的事实；句子里出现“老师”“学长”“哥哥”这类称呼，不代表目标人物就是这个身份。只有用户明确在说自己（我/我的/自己），或明确点名目标人物时才提取。用户明确说出的长期喜好（如“我最喜欢妃咲”“我在玩蔚蓝档案”）属于他本人，可以提取。
+ 
+ 不要提取临时情绪、客套话、当前动作、机器人建议、猜测、玩笑、承诺或无关信息。
+ 严格输出 JSON 数组，例如：["{person_name}喜欢深夜打游戏"]。
+--- a/memorix/core/storage/vector_store.py
++++ b/memorix/core/storage/vector_store.py
+@@ -155,6 +155,11 @@ class VectorStore:
+         with self._lock:
+             if vectors.shape[1] != self.dimension:
+                 raise ValueError(f"Dimension mismatch: {vectors.shape[1]} vs {self.dimension}")
++            # 本地改动：嵌入请求失败时 api_adapter 会返回 NaN 向量，不能当成"已就绪"存进去
++            # （2026-11-01 硅基流动欠费后存进了 69 条 NaN）。抛 RuntimeError（不是 ValueError，
++            # 调用方把 ValueError 当"已存在"处理），调用方会把它记成失败、之后补写。
++            if not np.isfinite(np.asarray(vectors, dtype=np.float32)).all():
++                raise RuntimeError("embedding 含 NaN/Inf（嵌入请求失败），没有写入向量库")
+ 
+             vectors = np.ascontiguousarray(vectors, dtype=np.float32)
+             faiss.normalize_L2(vectors)
+--- a/memorix/amemorix/bootstrap.py
++++ b/memorix/amemorix/bootstrap.py
+@@ -217,6 +217,14 @@ def build_context(settings: AppSettings) -> AppContext:
+             logger.info("Loaded vector store with %s vectors", vector_store.num_vectors)
+         except Exception as exc:
+             logger.warning("Vector load failed: %s", exc)
++    # 本地改动：load() 只读元数据，没把 vectors.bin 里的向量放进检索索引（原本该由 warmup_index 做，这条启动路径没调），
++    # 于是每次启动后向量检索都是空的（"Indices are empty"），只有启动后新写的记忆能按意思找到。
++    # force_train=False：只把磁盘上的向量回放进精确的平铺索引，不训练量化索引（几百条向量用不着）。
++    try:
++        summary = vector_store.warmup_index(force_train=False)
++        logger.info("Vector index warmed up: %s", {k: summary.get(k) for k in ("ok", "fallback_ntotal", "bin_count", "error")})
++    except Exception as exc:
++        logger.warning("Vector warmup failed: %s", exc)
+ 
+     if graph_store.has_data():
+         try:
+--- a/memorix/memory_injection.py
++++ b/memorix/memory_injection.py
+@@ -385,9 +385,34 @@
+             return ""
+         payload["scope"] = adapted.scope_key
+         payload["chat_id"] = adapted.session_id
++        # 本地改动（2026-11-13）：自动带上的记忆也交给反馈纠错（原版只有 search_memory 工具查到的才排进去，
++        # 她几乎不主动调那个工具）。后台排队，不等它，不耽误这轮回复。
++        hit_hashes = [
++            str(item.get("hash") or item.get("hash_value") or "").strip() for item in self._search_items(payload)
++        ]
++        hit_hashes = [h for h in hit_hashes if h]
++        if hit_hashes:
++            asyncio.create_task(self._enqueue_feedback_quietly(adapted, clean_query, hit_hashes))
+         formatted = _format_search_result_for_llm(payload, limit=top_k)
+         return f"【长期记忆-自动检索】\n{self._truncate_reference_text(formatted, MEMORY_INJECTION_MAX_CHARS)}"
+ 
++    async def _enqueue_feedback_quietly(self, adapted: MemorixEvent, query: str, hit_hashes: list[str]) -> None:
++        try:
++            enqueue = getattr(self.plugin, "enqueue_feedback", None)
++            enabled = getattr(self.plugin, "feedback_service_enabled", None)
++            if not callable(enqueue) or not callable(enabled) or not await enabled(adapted.scope_key):
++                return
++            await enqueue(
++                scope_key=adapted.scope_key,
++                query=query,
++                chat_id=adapted.session_id,
++                group_id=adapted.group_id,
++                user_id=adapted.sender_id,
++                hit_hashes=hit_hashes,
++            )
++        except Exception:
++            logger.debug("[memorix] auto-inject feedback enqueue skipped", exc_info=True)
++
+     async def _build_llm_memory_injection_block(self, event: AstrMessageEvent, request) -> str:
+         if self.plugin._is_cron_event(event):
+             return ""
+--- a/_conf_schema.json
++++ b/_conf_schema.json
+@@ -831,6 +831,12 @@
+         "hint": "开启后允许后台根据反馈任务尝试纠正长期记忆。",
+         "default": false
+       },
++      "feedback_correction_window_hours": {
++        "type": "float",
++        "default": 12.0,
++        "description": "反馈纠错窗口（小时）：想起一条记忆后，这么久之内对方的话里有纠正就改",
++        "hint": "本地改动（2026-11-13）：原版 schema 里没有这项，存配置时会被丢掉。"
++      },
+       "fuzzy_modify": {
+         "type": "object",
+         "description": "记忆模糊修正",
+--- a/memorix/providers/astrbot_provider_bridge.py
++++ b/memorix/providers/astrbot_provider_bridge.py
+@@ -7,6 +7,33 @@
+ from typing import Any, Dict, Optional, Tuple
+ 
+ 
++def _memory_slot_ids(ctx: Any) -> list:
++    """她的“记忆”那一格里填的、AstrBot 里确实有的模型 id（kaju_core 不在 / 没填 / 读不了都返回 []）。"""
++    try:
++        import sys
++
++        slots = sys.modules.get("kaju_core.slots")
++        if slots is None:
++            from kaju_core import slots  # type: ignore
++        ids = list(slots.providers("memory"))
++    except Exception:
++        return []
++    return [pid for pid in ids if ctx.get_provider_by_id(pid) is not None]
++
++
++async def _try_memory_slot(ctx: Any, prompt: str, temperature: float, max_tokens: int) -> str:
++    for pid in _memory_slot_ids(ctx):
++        try:
++            resp = await asyncio.wait_for(ctx.llm_generate(
++                chat_provider_id=pid, prompt=prompt, temperature=temperature, max_tokens=max_tokens), timeout=60)
++            text = str(getattr(resp, "completion_text", "") or "")
++            if text and getattr(resp, "role", "") != "err":
++                return text
++        except Exception:
++            continue
++    return ""
++
++
+ class AstrBotProviderBridge:
+     """AstrBot Context bridge for provider selection and invocation."""
+ 
+@@ -40,6 +67,13 @@
+         if ctx is None:
+             raise RuntimeError("AstrBot context is not available")
+ 
++        # 本地改动（2026-11-18 兄长：“接上”）：没单独填 chat_provider_id 时，先照她的“记忆”那一格
++        # （kaju_data/accounts/model_slots.json 的 memory，kaju_core/slots.py）从前往后试，都不行再用原来的当前聊天模型。
++        if not self.chat_provider_id:
++            text = await _try_memory_slot(ctx, str(prompt or ""), float(temperature), int(max_tokens))
++            if text:
++                return text
++
+         provider_id = await self.resolve_chat_provider_id(unified_msg_origin)
+         if not provider_id:
+             raise RuntimeError("chat provider is not configured")

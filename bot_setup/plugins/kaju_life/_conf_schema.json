@@ -1,0 +1,101 @@
+{
+  "day_start_hour": {
+    "type": "int",
+    "description": "几点算新的一天（按 AstrBot 配置的时区，北京时间）",
+    "default": 5
+  },
+  "daily": {
+    "type": "object",
+    "description": "佳树的一天：每天生成她自己的小日程，聊天时可以自然分享",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用",
+        "default": true
+      },
+      "timeout_seconds": {
+        "type": "float",
+        "description": "生成日程的超时时间（秒）",
+        "default": 90
+      }
+    }
+  },
+  "diary": {
+    "type": "object",
+    "description": "佳树的日记：记录聊天，每天写日记、每周写周记、每月写月记，把最近的回忆放进提示",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "启用（记录聊天、写日记、把最近的日记放进提示）",
+        "default": true
+      },
+      "owner_ids": {
+        "type": "string",
+        "description": "能看到完整日记（含私聊内容）的 QQ 号，逗号隔开；留空 = 身份表里的兄长大人本人（身份表没登记才用 AstrBot 管理员）。其他人和群聊只看到对外版",
+        "default": ""
+      },
+      "max_inject_chars": {
+        "type": "int",
+        "description": "每次放进提示的日记最多多少字（超了先丢最早的）",
+        "default": 1500
+      },
+      "full_days": {
+        "type": "int",
+        "description": "最近几篇日记放全文（其余只放一句话）",
+        "default": 2
+      },
+      "recent_days": {
+        "type": "int",
+        "description": "最近几天的日记总是放进来（更早的用周记、月记）",
+        "default": 7
+      },
+      "min_lines": {
+        "type": "int",
+        "description": "一天至少有多少条聊天记录才写日记",
+        "default": 4
+      },
+      "transcript_budget": {
+        "type": "int",
+        "description": "写日记时给模型看的聊天记录最多多少字（群聊闲聊多时会均匀省略，和她有关的不省）",
+        "default": 16000
+      },
+      "timeout_seconds": {
+        "type": "float",
+        "description": "写一篇日记的超时时间（秒）",
+        "default": 180
+      }
+    }
+  },
+  "self_facts": {
+    "description": "关于自己",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "每轮想起关于自己的事",
+        "type": "bool",
+        "default": true,
+        "hint": "清单在 plugin_data/astrbot_plugin_kaju_life/self_facts.json，直接改文件就行，下一轮自动重读。"
+      },
+      "top_k": {
+        "description": "每轮想起几条",
+        "type": "int",
+        "default": 5
+      },
+      "ollama_url": {
+        "description": "本机 Ollama 地址",
+        "type": "string",
+        "default": "http://127.0.0.1:11435"
+      },
+      "model": {
+        "description": "算向量的模型",
+        "type": "string",
+        "default": "bge-m3"
+      },
+      "timeout_seconds": {
+        "description": "等向量最多几秒（超了这轮就不放）",
+        "type": "float",
+        "default": 4.0
+      }
+    }
+  }
+}

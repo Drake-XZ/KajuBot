@@ -1,0 +1,44 @@
+# 白名单：默认什么都不传，只放行下面列出的代码和文档。
+# 钥匙、登录、记忆、聊天记录、语料、模型、第三方程序一律不进仓库。
+/*
+!/.gitignore
+!/README.md
+# AGENT.md 是内部交接记录（含真实聊天），只留本机
+
+# 她的代码
+!/bot_setup/
+/bot_setup/memsea/out/
+/bot_setup/tools/omni_compare/results/
+/bot_setup/tools/omni_compare/samples*.json
+/bot_setup/plugins/kaju_basics/data/cmd_config.json
+
+# 训练脚本（方案文档含真实聊天，只留本机；不含数据、模型、标注、key）
+!/voice_train/
+/voice_train/*
+!/voice_train/scripts/
+
+# 本地看图的启动脚本（不含 runtime 和模型）
+!/local_vision/
+/local_vision/*
+!/local_vision/README.md
+!/local_vision/*.py
+!/local_vision/*.ps1
+!/local_vision/*.cmd
+
+# 数据目录只留说明
+!/kaju_data/
+/kaju_data/*
+!/kaju_data/README.txt
+
+# 到处都不要的
+__pycache__/
+*.pyc
+*.log
+*.jsonl
+*.sqlite
+*.db
+.env
+*.key
+*cookie*
+*login*.json
+*_keys.json

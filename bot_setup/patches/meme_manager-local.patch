@@ -1,0 +1,195 @@
+# meme_manager 5.2.9 的本地改动（插件更新后会丢，需要重新打上）
+# 1) mixins/event_handlers.py: _pick_weighted_meme 同分类里自己的表情包 (kaju_memes) 权重 PRIMARY_PACK_WEIGHT（2026-11-15 起 None=不加权，原 0.8）；
+#    其余先随机挑一个包、再从包里挑图（按包均分，不按张数，2026-11-01）
+# 2) mixins/event_handlers.py: _category_aliases 读 plugin_data\meme_manager\category_aliases.json（同义小分类 → 大分类），
+#    _get_category_meme_files 取大分类时把别名目录的图也算进去（2026-11-01）
+# 3) main.py: 提示词里不列别名分类；_own_pack_category_note 在分类提示后附上「亲手添加的表情」分类列表（2026-11-15 起 OWN_PACK_NOTE=False 关掉）
+# 打补丁: cd <core>\data\plugins\meme_manager && git apply --ignore-whitespace <本文件>  (或 patch -p1 < 本文件)
+# 检查: venv python -I bot_setup\tests\test_meme_patch.py
+--- a/mixins/event_handlers.py
++++ b/mixins/event_handlers.py
+@@ -598,20 +598,90 @@
+         ]
+         if not roots:
+             roots = [Path(self._get_runtime_memes_dir_for_event(event))]
++        # 本地补丁（佳树）：别名分类的图也算进大分类
++        aliases = self._category_aliases()
++        emotion = aliases.get(emotion, emotion)
++        names = [emotion] + [alias for alias, main in aliases.items() if main == emotion]
+         images = []
+         for root in roots:
+-            try:
+-                directory = resolve_safe_category_directory(root, emotion)
+-            except ValueError:
+-                continue
+-            if directory.is_dir():
+-                images.extend(
+-                    path
+-                    for path in directory.iterdir()
+-                    if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+-                )
++            for name in names:
++                try:
++                    directory = resolve_safe_category_directory(root, name)
++                except ValueError:
++                    continue
++                if directory.is_dir():
++                    images.extend(
++                        path
++                        for path in directory.iterdir()
++                        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
++                    )
+         return images
+ 
++    # 本地补丁（佳树）：同义的小分类并进大分类，{"别名": "大分类"}，键以 _ 开头的是说明。
++    # 提示词里不列别名（main.py），她写大分类时别名目录里的图也一起参与随机（上面）。
++    CATEGORY_ALIASES_FILE = PLUGIN_DATA_DIR / "category_aliases.json"
++
++    def _category_aliases(self) -> dict[str, str]:
++        """Read the alias map (small category -> main category).
++
++        Returns:
++            Alias map without comment keys or self-references; empty when missing or broken.
++        """
++        try:
++            data = json.loads(self.CATEGORY_ALIASES_FILE.read_text(encoding="utf-8"))
++        except FileNotFoundError:
++            return {}
++        except Exception as e:  # noqa: BLE001
++            logger.warning(f"[meme_manager] 读取分类别名失败: {e}")
++            return {}
++        if not isinstance(data, dict):
++            return {}
++        return {
++            str(k): str(v)
++            for k, v in data.items()
++            if not str(k).startswith("_") and isinstance(v, str) and str(k) != v
++        }
++
++    # 本地补丁（佳树）：主包（绑定规则里排第一的包）被抽中的概率。
++    # 主包在该分类有图时，按这个概率只从主包里抽；否则先随机挑一个其他包，再从这个包里抽，
++    # 这样图多的包（比如 ATRI 500 多张）不会把图少的包挤掉。
++    # 插件更新后此补丁会被覆盖，原文件备份在 D:\JiashuBot\_backup。
++    # 2026-11-15 兄长要降回去：None = 不加权，主包和其他包一样按包均分（以前是 0.8）。
++    PRIMARY_PACK_WEIGHT = None
++    # 提示词里要不要附「亲手添加的表情」优先选（main.py _own_pack_category_note），2026-11-15 关掉。
++    OWN_PACK_NOTE = False
++
++    def _pick_weighted_meme(self, event: AstrMessageEvent, memes: list[Path]) -> Path:
++        """Pick a meme: primary pack by PRIMARY_PACK_WEIGHT, then one other pack at random.
++
++        Args:
++            event: Event used to resolve the current pack bindings.
++            memes: Candidate images of one category from all bound packs.
++
++        Returns:
++            The chosen image path.
++        """
++        try:
++            context = self._resolve_runtime_pack_context(event=event)
++            primary_root = Path(context.get("pack_dir", "")).resolve()
++            # 图片都在 <包>/memes/<分类>/<文件>，按 <包> 分组（只 resolve 包目录，图片路径不逐个 resolve）
++            by_pack: dict[Path, list[Path]] = {}
++            for m in memes:
++                by_pack.setdefault(Path(m).parents[2], []).append(m)
++            if self.PRIMARY_PACK_WEIGHT is None:
++                return random.choice(random.choice(list(by_pack.values())))
++            primary = next(
++                (by_pack.pop(k) for k in list(by_pack) if k.resolve() == primary_root),
++                [],
++            )
++            if primary and (not by_pack or random.random() < self.PRIMARY_PACK_WEIGHT):
++                return random.choice(primary)
++            if by_pack:
++                return random.choice(random.choice(list(by_pack.values())))
++        except Exception as e:  # noqa: BLE001
++            logger.warning(f"[meme_manager] 主包加权选图失败，改为均匀随机: {e}")
++        return random.choice(memes)
++
+     async def _build_emotion_images_for_event(
+         self,
+         event: AstrMessageEvent,
+@@ -633,7 +703,7 @@
+             if not memes:
+                 continue
+ 
+-            meme_file = str(random.choice(memes))
++            meme_file = str(self._pick_weighted_meme(event, memes))
+ 
+             try:
+                 final_meme_file = await asyncio.to_thread(
+@@ -1575,7 +1645,7 @@
+                         memes = self._get_category_meme_files(event, emotion)
+                         if not memes:
+                             continue
+-                        meme_file = str(random.choice(memes))
++                        meme_file = str(self._pick_weighted_meme(event, memes))
+ 
+                         try:
+                             # 转换静态图为 GIF（如果配置开启）
+@@ -1761,7 +1831,7 @@
+                 memes = self._get_category_meme_files(event, emotion)
+                 if not memes:
+                     continue
+-                meme_file = str(random.choice(memes))
++                meme_file = str(self._pick_weighted_meme(event, memes))
+                 final_meme_file = await asyncio.to_thread(
+                     self._convert_to_gif, meme_file
+                 )
+--- a/main.py
++++ b/main.py
+@@ -912,15 +912,54 @@
+                 for memes_dir in memes_dirs
+             )
+         }
++        # 本地补丁（佳树）：别名分类不单独列出来，它的图算进大分类（见 _category_aliases）
++        aliases = self._category_aliases()
++        category_mapping = {
++            key: description
++            for key, description in category_mapping.items()
++            if aliases.get(key) not in category_mapping
++        }
+         req.system_prompt = self._strip_meme_prompt(req.system_prompt)
+         if not category_mapping:
+             return
+         category_mapping_string = dict_to_string(category_mapping)
++        category_mapping_string += self._own_pack_category_note(
++            pack_context, category_mapping
++        )
+         sys_prompt_add = self._build_meme_prompt(category_mapping_string)
+         req.system_prompt = self._strip_meme_prompt(
+             req.system_prompt
+         ) + self._wrap_meme_prompt(sys_prompt_add)
+ 
++    # 本地补丁（佳树）：绑定了多个包时，告诉模型哪些分类里有主包（亲手添加的）表情，
++    # 几个分类都合适时优先选它们。插件更新后会被覆盖，原文件备份在 D:\JiashuBot\_backup。
++    def _own_pack_category_note(self, pack_context: dict, category_mapping: dict) -> str:
++        try:
++            if not getattr(self, "OWN_PACK_NOTE", False):
++                return ""
++            if len(pack_context.get("pack_dirs") or {}) < 2:
++                return ""
++            own_dir = Path(pack_context["memes_dir"])
++            own = [
++                key
++                for key in category_mapping
++                if (own_dir / key).is_dir()
++                and any(
++                    image.is_file() and image.suffix.lower() in IMAGE_EXTENSIONS
++                    for image in (own_dir / key).iterdir()
++                )
++            ]
++            if not own:
++                return ""
++            return (
++                "\n[亲手添加的表情]\n"
++                "这些分类里有专门为你亲手添加的表情：" + "、".join(own) + "。\n"
++                "几个分类都说得通时，优先选这些分类；它们都不贴合当下的语气时，照常选别的分类，不要硬套。\n"
++            )
++        except Exception as e:  # noqa: BLE001
++            logger.warning(f"[meme_manager] 生成亲手添加表情提示失败: {e}")
++            return ""
++
+     def _reload_personas(self):
+         pack_context = self._resolve_runtime_pack_context()
+         context_mapping = pack_context.get("category_mapping")

@@ -1,0 +1,5 @@
+name: astrbot_plugin_qzone_post
+desc: 让机器人在自己的 QQ 空间发说说（管理员指示或自己觉得值得记录时），看到说说的点赞和评论：点赞的人多一点好感，评论像私聊一样回；每晚按当天素材选材写说说，核对事实和隐私过了才发
+short_desc: QQ 空间说说
+version: 1.2.1
+author: dsh

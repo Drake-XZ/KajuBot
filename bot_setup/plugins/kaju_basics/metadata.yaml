@@ -1,0 +1,5 @@
+name: astrbot_plugin_kaju_basics
+desc: "佳树基础：账号白名单、昵称/戳一戳唤醒、等图片描述再回复、看视频/动图/文件/语音/B站链接/抖音链接/听音乐、B站小号扫码登录、有许可时自己刷B站、稳定前缀（提高缓存命中）、私聊连发合并"
+short_desc: 佳树基础
+version: 1.39.0
+author: dsh

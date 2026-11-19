@@ -1,0 +1,5 @@
+name: astrbot_plugin_kaju_dm
+desc: 佳树私信：和她互关的人能在B站私信她聊天、发视频（像 QQ 私聊一样回）；她回关别人、别人每天超过 3 条的视频，都要兄长在 QQ 同意
+short_desc: B站和抖音私信
+version: 1.6.0
+author: dsh

@@ -1,0 +1,5 @@
+name: astrbot_plugin_smart_chime_in
+desc: 聪明插话：替代内置随机主动回复。等一波消息聊完再按内容决定要不要插话，插话时接住话题本身，插不上话就不说
+short_desc: 聪明插话
+version: 1.13.0
+author: dsh

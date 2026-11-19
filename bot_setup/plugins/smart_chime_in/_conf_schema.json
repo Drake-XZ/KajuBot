@@ -1,0 +1,143 @@
+{
+  "enable": {
+    "description": "启用聪明插话（需关闭内置的主动回复）",
+    "type": "bool",
+    "default": true
+  },
+  "quiet_seconds": {
+    "description": "群里安静多少秒算一波聊完，再决定要不要插话",
+    "type": "float",
+    "default": 8
+  },
+  "burst_cap": {
+    "description": "群里一直刷屏时，攒够多少条也做一次决定",
+    "type": "int",
+    "default": 15
+  },
+  "window_seconds": {
+    "description": "打分时看最近多少秒的聊天（只算她上次说话之后的）",
+    "type": "float",
+    "default": 120,
+    "hint": "插话概率按\"每这么长一段聊天\"来算：群里一句一停或一口气刷屏，整体频率差不多。"
+  },
+  "base_chance": {
+    "description": "一波有内容的聊天，插话的基础概率",
+    "type": "float",
+    "default": 0.35
+  },
+  "question_bonus": {
+    "description": "有人在群里提问时额外加的概率",
+    "type": "float",
+    "default": 0.2
+  },
+  "topic_bonus": {
+    "description": "聊到佳树关心的话题（吃饭/学习/睡觉/学姐/小说/游戏抽卡…）时额外加的概率",
+    "type": "float",
+    "default": 0.2
+  },
+  "lively_bonus": {
+    "description": "多人热聊时额外加的概率",
+    "type": "float",
+    "default": 0.1
+  },
+  "max_chance": {
+    "description": "插话概率上限",
+    "type": "float",
+    "default": 0.7
+  },
+  "cooldown_seconds": {
+    "description": "她在群里说完话后，至少隔多少秒才会主动插话",
+    "type": "float",
+    "default": 60
+  },
+  "cooldown_recheck": {
+    "description": "冷却中来的话不直接丢：冷却完、这期间没新消息也没人叫她，就再照常看一次要不要插话",
+    "type": "bool",
+    "default": true
+  },
+  "cooldown_recheck_max": {
+    "description": "冷却还剩多少秒以内才等着再看（剩得更多就直接不插话）",
+    "type": "float",
+    "default": 60
+  },
+  "max_per_hour": {
+    "description": "每个群每小时最多主动插话几次",
+    "type": "int",
+    "default": 10
+  },
+  "follow_enable": {
+    "description": "接着聊：她刚回过的人再发消息（没 @ 别人），不用叫她也接着回",
+    "type": "bool",
+    "default": true
+  },
+  "follow_seconds": {
+    "description": "她对某人说完话后多少秒内，TA 的消息算接着跟她聊",
+    "type": "float",
+    "default": 180
+  },
+  "follow_quiet_seconds": {
+    "description": "接着聊时，等对方安静几秒（说完拆开发的几条）再回",
+    "type": "float",
+    "default": 4
+  },
+  "wake_hold": {
+    "description": "被 @ / 叫名字时先等对方说完再回（同一个人连着叫她几次只回最新那次）",
+    "type": "bool",
+    "default": true
+  },
+  "wake_quiet_seconds": {
+    "description": "被叫到后，等叫她的人安静几秒再开始回复",
+    "type": "float",
+    "default": 3
+  },
+  "wake_max_wait": {
+    "description": "被叫到后最多等几秒（对方一直在发也开始回）",
+    "type": "float",
+    "default": 12
+  },
+  "late_messages": {
+    "description": "叫她之后、她开始回复之前新来的群消息，也放进这一轮给她看（一次看完整段再回）",
+    "type": "bool",
+    "default": true
+  },
+  "catch_up_max_seconds": {
+    "description": "等完之后还在排队（她正在回别人）时同一个人又叫了她，前面那次就交给后面那次一起回；第一次叫她已经过了这么多秒就不再往后交，先回",
+    "type": "float",
+    "default": 30
+  },
+  "wake_notes": {
+    "description": "回之前的提醒：这个人前面也叫过你（合起来回一次）、别人也在等你回（这次只回眼前这个人）、TA 是在你上一条回复发出去之前打的字（别重复）",
+    "type": "bool",
+    "default": true
+  },
+  "follow_merge": {
+    "description": "排队等她回的“接着聊”，后面又有人在等她（接着聊或叫她）时，前面那次不单独回，交给最新那次一起看（群聊记录里都在，会提醒她谁也在接着说）",
+    "type": "bool",
+    "default": true
+  },
+  "follow_stale_seconds": {
+    "description": "“接着聊”排队超过这么多秒、而且群里又聊了 follow_stale_messages 条，就当话题已经过去了，不回（直接叫她的照样回）",
+    "type": "float",
+    "default": 40.0
+  },
+  "follow_stale_messages": {
+    "description": "见 follow_stale_seconds：排队期间群里又聊了几条才算话题过去了",
+    "type": "int",
+    "default": 6
+  },
+  "yield_to_wake": {
+    "description": "回复写好、还没发时，同一个人在这条之后又叫了她：这次不发，群聊记录放回去，交给叫她那次一起回（不然一件事回两遍）",
+    "type": "bool",
+    "default": true
+  },
+  "yield_max_seconds": {
+    "description": "见 yield_to_wake：这一轮从消息到达算起超过这么多秒（比如查了资料）就照常发出去",
+    "type": "float",
+    "default": 40.0
+  },
+  "follow_wait_coming": {
+    "description": "接着聊时，同一个人还有消息在路上（表情包/图片还在等描述），最多等这么多秒，到了一起回；0 = 不等",
+    "type": "float",
+    "default": 30.0
+  }
+}

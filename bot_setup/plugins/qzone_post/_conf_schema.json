@@ -1,0 +1,162 @@
+{
+  "auto_post_enabled": {
+    "description": "允许她自己主动发说说",
+    "type": "bool",
+    "default": true,
+    "hint": "关掉后只有管理员要求时才会发。"
+  },
+  "auto_daily_limit": {
+    "description": "每天主动发说说的上限",
+    "type": "int",
+    "default": 2
+  },
+  "auto_min_interval_hours": {
+    "description": "两条主动说说之间至少间隔（小时）",
+    "type": "float",
+    "default": 4
+  },
+  "interact": {
+    "description": "说说的点赞和评论",
+    "type": "object",
+    "items": {
+      "enable": {
+        "description": "看说说下面的点赞和评论",
+        "type": "bool",
+        "default": true
+      },
+      "poll_minutes": {
+        "description": "每隔几分钟看一次",
+        "type": "float",
+        "default": 5
+      },
+      "scan_posts": {
+        "description": "看最近几条说说",
+        "type": "int",
+        "default": 10
+      },
+      "scan_days": {
+        "description": "只看几天内发的说说",
+        "type": "float",
+        "default": 14
+      },
+      "like_affection": {
+        "description": "每个新点赞加多少好感",
+        "type": "float",
+        "default": 1.0,
+        "hint": "交给心情与好感插件按它的规则算（越高越难涨、每天有上限、一次最多 +3）；0 = 不加。"
+      },
+      "like_notice_hours": {
+        "description": "点赞后多久内聊天时提一句",
+        "type": "float",
+        "default": 48
+      },
+      "reply_comments": {
+        "description": "回复评论",
+        "type": "bool",
+        "default": true,
+        "hint": "评论会当成那个人发来的私聊交给她，回复发回评论区。"
+      },
+      "max_age_hours": {
+        "description": "超过多少小时的评论不回",
+        "type": "float",
+        "default": 24
+      },
+      "max_replies_per_poll": {
+        "description": "每次最多回几条",
+        "type": "int",
+        "default": 3
+      },
+      "reply_timeout_seconds": {
+        "description": "等她回一条评论最多多少秒",
+        "type": "float",
+        "default": 240
+      },
+      "start_delay_seconds": {
+        "description": "启动后多久开始看",
+        "type": "float",
+        "default": 90
+      },
+      "cookie_hours": {
+        "description": "QQ 空间 cookie 留着用几小时",
+        "type": "float",
+        "default": 6,
+        "hint": "每次重拿都要重新登录一遍 QQ 空间，拿太勤会被限流、拿回没登录的 cookie；接口说没登录时会自动重拿。"
+      },
+      "like_timeout_seconds": {
+        "description": "读一条点赞名单最多等几秒",
+        "type": "float",
+        "default": 30
+      },
+      "max_backoff_minutes": {
+        "description": "出错后最多隔多久再看",
+        "type": "float",
+        "default": 60,
+        "hint": "连着出错时间隔翻倍（5→10→20→40→60 分钟），好了就恢复。"
+      }
+    }
+  },
+  "nightly": {
+    "description": "每晚的说说",
+    "type": "object",
+    "items": {
+      "mode": {
+        "description": "模式",
+        "type": "string",
+        "default": "draft",
+        "options": [
+          "off",
+          "draft",
+          "post"
+        ],
+        "hint": "off = 不管（旧的定时任务照旧发）；draft = 只写好、核对、记下来，不发，管理员用 /佳树说说 看、/佳树说说 发；post = 核对过了就发。draft/post 时旧的定时任务会被挡掉。"
+      },
+      "at": {
+        "description": "几点写（北京时间 HH:MM）",
+        "type": "string",
+        "default": "22:30"
+      },
+      "catch_up_minutes": {
+        "description": "过了点多久内还补写",
+        "type": "float",
+        "default": 90,
+        "hint": "机器人到点时没开，开起来后这么多分钟内还会补；再晚就算了。"
+      },
+      "day_start_hour": {
+        "description": "几点算新的一天",
+        "type": "int",
+        "default": 5,
+        "hint": "和佳树的生活插件一致。"
+      },
+      "writer": {
+        "description": "谁来写正文",
+        "type": "string",
+        "default": "deepseek",
+        "options": [
+          "deepseek",
+          "local"
+        ],
+        "hint": "local = 交给说话习惯插件的重说层（card 模式 = 要点卡 + 本地写手）；写出来过不了硬伤检查就用 DeepSeek 原稿。新写手盲选过了再开。"
+      },
+      "recent_topics": {
+        "description": "选材时参考最近几条说说的话题",
+        "type": "int",
+        "default": 5
+      },
+      "budget": {
+        "description": "素材最多多少字",
+        "type": "int",
+        "default": 9000
+      },
+      "timeout_seconds": {
+        "description": "每一步等模型最多多少秒",
+        "type": "float",
+        "default": 60
+      },
+      "start_delay_seconds": {
+        "description": "启动后多久开始看时间",
+        "type": "float",
+        "default": 120
+      }
+    }
+  }
+}
