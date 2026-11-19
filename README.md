@@ -1,8 +1,8 @@
 # KajuBot
 
-KajuBot 是一个基于 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的 QQ 聊天机器人，以《败犬女主太多了！》中的角色温水佳树为原型。她会记住和每个人的相处，有自己的心情，会从聊天和看过的内容里学东西，并用本地训练的模型模仿角色的说话方式。
+KajuBot 是一个基于 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的 QQ 聊天机器人，以《败犬女主太多了！》中的角色温水佳树为原型。她会记住和每个人的相处，有自己的心情，会从聊天和看过的内容里学东西，并以角色的口吻说话。
 
-> 本项目是个人兴趣项目，与原作及其版权方无关。仓库只包含代码，不包含原作文本、训练数据或训练好的模型。
+> 本项目是个人兴趣项目，与原作及其版权方无关。仓库只包含代码，不包含原作文本。
 
 ## 功能
 
@@ -12,7 +12,7 @@ KajuBot 是一个基于 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 的 QQ
 | 心情与好感 | 心情随对话变化，关系分多个维度，好感会累积；喜好在相处中形成 |
 | 记忆 | 长期记忆和工作记忆；记忆有轻重、会褪色、会被触发想起；会记下心里的想法、未完成的约定和对每个人的印象 |
 | 学习 | 从聊天、视频、书、音乐和网页搜索里积累知识，越常用越熟；每晚复盘、核对旧知识、总结教训、学习群里的叫法 |
-| 生活 | 每日日程，日记、周记、月记，每晚发一条 QQ 空间说说 |
+| 生活 | 每日日程，日记、周记、月记；每晚写一条 QQ 空间说说，经主人批准后发出 |
 | 说话 | 由大模型规划回复内容，再由回复器按角色口吻写出，发送前核对；群聊中自行判断是否插话 |
 | 平台 | QQ 私聊和群聊；B站、抖音私信；自己浏览 B站并分享感受 |
 | 管理工具 | Windows 控制台（启停、群聊插话程度、人格编辑、表情包管理）、记忆可视化、`botctl` 部署和测试工具 |
@@ -41,14 +41,13 @@ QQ ── SnowLuma (OneBot v11) ── AstrBot ── plugins/（AstrBot 插件�
 |---|---|
 | `bot_setup/` | 全部机器人代码：kaju_core、kaju_platforms、kaju_astr、plugins、控制台脚本、tools、tests |
 | `bot_setup/patches/` | 对第三方插件 memorix、meme_manager 的本地补丁 |
-| `voice_train/scripts/` | 回复模型的数据构建、训练和评测脚本 |
-| `local_vision/` | 本地 Ollama 运行环境的启动和检查脚本 |
+| `local_vision/` | 本地 Ollama 服务（向量模型 bge-m3）的启停脚本 |
 
 ## 运行环境
 
 - Windows 10/11
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot)（aiocqhttp 适配器）和 SnowLuma（OneBot v11 实现）
-- [Ollama](https://ollama.com/)：本地向量模型 bge-m3，可选本地视觉模型
+- [Ollama](https://ollama.com/)：运行本地向量模型 bge-m3，供长期记忆检索使用
 - 第三方 AstrBot 插件：memorix（长期记忆）、meme_manager（表情包）
 - 大模型 API：对话规划和回复使用兼容 OpenAI 接口的模型服务，图片、视频理解使用 Gemini
 
@@ -83,8 +82,8 @@ python -I bot_setup/tests/test_plugins.py
 
 - API key、账号登录信息和 Cookie
 - 角色的记忆、知识和聊天记录
-- 原作文本、训练数据和标注数据
-- 训练好的模型和第三方程序
+- 原作文本
+- 第三方程序和模型文件
 
 ## 许可
 

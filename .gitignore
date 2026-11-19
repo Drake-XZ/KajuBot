@@ -8,22 +8,15 @@
 # 她的代码
 !/bot_setup/
 /bot_setup/memsea/out/
-/bot_setup/tools/omni_compare/results/
-/bot_setup/tools/omni_compare/samples*.json
+/bot_setup/tools/omni_compare/
 /bot_setup/plugins/kaju_basics/data/cmd_config.json
+# voice_train（本地写手的训练，已停用）只留本机
 
-# 训练脚本（方案文档含真实聊天，只留本机；不含数据、模型、标注、key）
-!/voice_train/
-/voice_train/*
-!/voice_train/scripts/
-
-# 本地看图的启动脚本（不含 runtime 和模型）
+# 本地 Ollama（向量模型 bge-m3）的启停脚本，不含 runtime 和模型；本地看图已停用
 !/local_vision/
 /local_vision/*
-!/local_vision/README.md
-!/local_vision/*.py
-!/local_vision/*.ps1
-!/local_vision/*.cmd
+!/local_vision/runtime.ps1
+!/local_vision/runtime-launch.cmd
 
 # 数据目录只留说明
 !/kaju_data/
