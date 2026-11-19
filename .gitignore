@@ -35,3 +35,6 @@ __pycache__/
 *cookie*
 *login*.json
 *_keys.json
+
+# 开发记录（含历史和真实事例）只留本机
+/bot_setup/docs/开发记录.md
