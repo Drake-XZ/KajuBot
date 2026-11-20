@@ -1477,6 +1477,15 @@ async def life_tests():
     d.log_reply(ev, "你好呀&&happy&&")
     recs = d._read_log(life._day_key())
     expect("diary log", [(r["u"], r["x"]) for r in recs], [("123", "你好"), ("self", "你好呀")])
+    ev.set_extra("found_emotions", ["proud"])  # 她跟着发了表情包（11-20）
+    ev.set_extra("_ks_meme_label", "得意")
+    d.log_reply(ev, "嘿嘿")
+    ev.set_extra("meme_manager_legacy_probability_hit", False)  # 骰子没中 = 没发
+    d.log_reply(ev, "嗯嗯")
+    expect("diary logs her sticker", [r["x"] for r in d._read_log(life._day_key())][2:], ["嘿嘿", "[表情包：得意]", "嗯嗯"])
+    from kaju_core.voice import emoji as _emoji
+    expect("emoji label", (_emoji.label({"proud": "得意、炫耀时，被夸了"}, "proud"), _emoji.label({}, "shy")),
+           ("得意、炫耀时", "shy"))
     today = dt.date.fromisoformat(life._day_key())
     y = (today - dt.timedelta(days=1)).isoformat()
     d._idx["diary"][y] = {"full": "私聊里兄长大人说要考试", "public": "群里很热闹", "brief": "普通的一天",
@@ -1572,7 +1581,8 @@ async def bond_tests():
     b.ask_brother_for_help = b.ask
 
     expect("bond owner note", ("【最依赖的人】" in b.note("111111111"), "就是兄长大人本人" in b.note("111111111")), (True, True))
-    expect("bond other note", "不是兄长大人本人" in b.note("555"), True)
+    expect("bond other note (称呼规则已说，不再重复)", ("【最依赖的人】" in b.note("555"), "不是兄长大人本人" in b.note("555")), (True, False))
+    expect("bond no fixed line", "佳树要去告诉兄长大人" in b.note("555"), False)
     cfg["enable"] = False
     expect("bond off", b.note("111111111"), "")
     cfg["enable"] = True

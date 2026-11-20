@@ -6,6 +6,7 @@
 
 例子库 kaju_data\\self\\kaju_style\\replyer_bank.json：[{situation, line, src, vec}]（voice_train\\scripts\\build_replyer_bank.py 造）；
 按“这一轮对方的话 + 要接住的”用本机 bge-m3 挑最近的几句，原作的最多 2 句；向量服务不在就不放例子。
+11-20 晚起再加上 kaju_learn 每晚从她真实聊天里挑的效果好的话（replyer_learned.json，src = "live"，一轮最多 rewrite.replyer_live_max 句）。
 模型在 kaju_data\\accounts\\text_models.json，按 rewrite.replyer_models 的名字前缀从前往后试，一个不行换下一个；都不行返回 ''（mind.py 退回本地写手）。
 开关 rewrite.replyer = "api"（默认 "local" = 照旧本地写手），只在大脑模式（main_role = "brain"）下用。
 """
@@ -22,6 +23,7 @@ import time
 from kaju_core.voice import brain
 
 BANK_FILE = ("kaju_style", "replyer_bank.json")
+LEARNED_FILE = "replyer_learned.json"  # 从真实聊天里长的例句（11-20 晚）
 # 回复器看的聊天里她自己那几行（11-18 晚，照 MaiBot 的“{bot_name}(你)”：自己说过的话和别人的分清）
 ME_LABEL = "佳树(你)"
 CHAT_NOTE = (f"最近的聊天（标着“{ME_LABEL}”的是你自己说过的话，注意和别人的区分；“（回复X：…）”是这句在回谁的哪句话，"
@@ -31,10 +33,13 @@ DEFAULT_MODELS = ["bb-api · claude-sonnet-5", "hardysapi · claude-sonnet-5-5"]
 STYLE = """说话方式：
 - 写她在 QQ 上会发的话，一条消息一行；通常一两句，事情多才多一点。
 - 她自称“佳树”、叫哥哥“兄长大人”，但一句话里不反复自称、不反复叫人。
-- 不复述对方刚说的话，不写时间、名字前缀、括号里的动作和心理描写。
-- 大脑的指导是这一轮要表达的意思，照着说到，但用她自己的话；指导里没有的事不加（对方没说累、没说吃饭，就不顺手叮嘱吃饭、休息）。"""
+- 不复述对方刚说的话，也不把你自己最近几条说过的意思再说一遍；不写时间、名字前缀、括号里的动作和心理描写。
+- 大脑的指导是这一轮要表达的意思，照着说到，但用她自己的话；指导里没有的事不加（对方没说累、没说吃饭，就不顺手叮嘱吃饭、休息），
+  尤其不编她自己的经历（指导里没写她试过、用过、去过、看过的，就别说“佳树之前试过”）。
+- 聊天里群友说“AI”“机器人”“模型”“训练”，说的是群里别的 AI，不是你：不说自己是不是 AI（不否认、不承认、不说“才不是 AI”），
+  也不从 AI、训练数据的角度说话，只照指导接话题本身。"""
 
-_bank_cache: tuple[float, list] = (0.0, [])
+_bank_cache: tuple = ((), [])
 
 
 def traits() -> list[str]:
@@ -93,23 +98,38 @@ def user_prompt(kind: str, title: str, ctx: list[str], plan: dict, said: str = "
             f"大脑的指导：\n{plan_text(plan)}\n\n只输出她要发的话。")
 
 
-def load_bank(path: str = "") -> list[dict]:
+def _read_bank(path: str, learned: bool) -> list[dict]:
+    try:
+        d = json.load(open(path, encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if learned:  # 从真实聊天里长的（kaju_learn 每晚挑，kaju_core\learn\phrases.py）：{items: [...]}，只要还在用的
+        d = [x for x in (d.get("items") if isinstance(d, dict) else None) or [] if x.get("status", "active") == "active"]
+    return [b for b in d if isinstance(b, dict) and b.get("vec") and b.get("line")]
+
+
+def load_bank(path: str = "", learned_path: str | None = None) -> list[dict]:
+    """原来的例子库 + 从真实聊天里学到的（11-20 晚，replyer_learned.json，src = "live"）；两个文件按改动时间缓存。"""
     global _bank_cache
     if not path:
         try:
             from kaju_core import paths
-            path = os.path.join(paths.self_dir(BANK_FILE[0]), BANK_FILE[1])
+            folder = paths.self_dir(BANK_FILE[0])
         except Exception:  # noqa: BLE001
             return []
-    try:
-        mt = os.path.getmtime(path)
-    except OSError:
-        return []
-    if mt != _bank_cache[0]:
+        path = os.path.join(folder, BANK_FILE[1])
+        if learned_path is None:
+            learned_path = os.path.join(folder, LEARNED_FILE)
+    files = [(path, False)] + ([(learned_path, True)] if learned_path else [])
+    mt = []
+    for f, _ in files:
         try:
-            _bank_cache = (mt, [b for b in json.load(open(path, encoding="utf-8")) if b.get("vec") and b.get("line")])
-        except (OSError, ValueError):
-            _bank_cache = (mt, [])
+            mt.append(os.path.getmtime(f))
+        except OSError:
+            mt.append(0.0)
+    key = (path, learned_path, tuple(mt))
+    if key != _bank_cache[0]:
+        _bank_cache = (key, [b for f, lr in files if os.path.exists(f) for b in _read_bank(f, lr)])
     return _bank_cache[1]
 
 
@@ -127,17 +147,20 @@ def example_query(said: str) -> str:
     return _QUERY_NOISE.sub("", str(said or "")).strip()[:200]
 
 
-def pick(bank: list[dict], vec: list[float], k: int = 5, max_novel: int = 2, floor: float = 0.0) -> list[dict]:
+def pick(bank: list[dict], vec: list[float], k: int = 5, max_novel: int = 2, floor: float = 0.0,
+         max_live: int = 2) -> list[dict]:
+    """max_live：从真实聊天里学到的（src = "live"）一轮最多几句（她自己的话占多了，越学越像自己、越来越单调）。"""
     scored = sorted(((_cos(vec, b["vec"]), b) for b in bank), key=lambda x: -x[0])
-    out, seen, n_novel = [], set(), 0
+    out, seen, n_novel, n_live = [], set(), 0, 0
     for _s, b in scored:
         if _s < floor:
             break
         key = b["line"][:12]
-        if key in seen or (b.get("src") == "novel" and n_novel >= max_novel):
+        if key in seen or (b.get("src") == "novel" and n_novel >= max_novel) or (b.get("src") == "live" and n_live >= max_live):
             continue
         seen.add(key)
         n_novel += b.get("src") == "novel"
+        n_live += b.get("src") == "live"
         out.append(b)
         if len(out) >= k:
             break
@@ -197,8 +220,13 @@ async def reply(kind: str, title: str, ctx: list[str], plan: dict, cfg: dict, sa
                     floor = float(cfg.get("replyer_example_min", 0.5))
                 except (TypeError, ValueError):
                     floor = 0.5
-                examples = pick(bank, vec, n_ex, floor=floor)
+                try:
+                    max_live = int(cfg.get("replyer_live_max", 2))
+                except (TypeError, ValueError):
+                    max_live = 2
+                examples = pick(bank, vec, n_ex, floor=floor, max_live=max_live)
     info["examples"] = [b["line"] for b in examples]
+    info["live_examples"] = sum(b.get("src") == "live" for b in examples)
     system, user = system_prompt(examples), user_prompt(kind, title, ctx, plan, said, ctx_lines, how)
     info["how"] = how
     names = cfg.get("replyer_models") or DEFAULT_MODELS

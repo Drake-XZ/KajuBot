@@ -1,5 +1,5 @@
 name: astrbot_plugin_memory_weight
 desc: "记忆轻重：郑重的话、常用的事记得牢（铭记在心 + 用上就加强），琐碎又没用过的闲聊按遗忘曲线慢慢忘掉（memorix 软删除，可恢复）；工作记忆：边聊边记刚才聊天的要点；未了的事：记得对方还没结果的事，聊到或日子近了想起来"
 short_desc: 记忆轻重
-version: 1.10.0
+version: 1.10.2
 author: dsh

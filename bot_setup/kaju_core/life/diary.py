@@ -445,7 +445,15 @@ class Diary:
             return
         gid = str(event.get_group_id() or "")
         sid = str(event.get_sender_id() or "")
-        self._append_log({"c": f"g{gid}" if gid else f"p{sid}", "u": "self", "n": "佳树", "x": text[:300]})
+        chat = f"g{gid}" if gid else f"p{sid}"
+        self._append_log({"c": chat, "u": "self", "n": "佳树", "x": text[:300]})
+        try:  # 她这句跟着发的表情包（meme_manager 在文字后面补发）：别人的表情会记，她自己的也记上（11-20）
+            picked = event.get_extra("found_emotions") or []
+            if picked and event.get_extra("meme_manager_legacy_probability_hit") is not False:
+                what = str(event.get_extra("_ks_meme_label") or picked[0]).strip()
+                self._append_log({"c": chat, "u": "self", "n": "佳树", "x": f"[表情包：{what}]"})
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------ generation
     async def _ask(self, system: str, prompt: str) -> str:

@@ -345,8 +345,9 @@ class MemoryMind:
         known = [k for k in self._state["keepsakes"] if self._ks_live(k) and k["qq"] in qqs
                  and (chat.startswith("p") or k["chat"] == chat)]
         known_text = "\n".join(f"{k['id'][:6]}: {self._who(k['qq'], k.get('name', ''))} - {k['memory']}" for k in known[-20:]) or "（无）"
-        data = rater.parse_json(await self._ask(
-            rater.KEEP_SYSTEM, rater.KEEP_PROMPT.format(before=before, lines=lines, scale=rater.SCALE, known=known_text)))
+        data = rater.parse_json(await self._slot_ask(  # 11-20：走“记忆”那一格（原来走主模型）
+            rater.KEEP_SYSTEM, rater.KEEP_PROMPT.format(before=before, lines=lines, scale=rater.SCALE, known=known_text),
+            "keepsake.provider_id"))
         if data is None:
             raise ValueError("模型没按 JSON 回")
         self._state["moods"].append({"chat": chat, "start": batch[0]["ts"], "end": batch[-1]["ts"],
@@ -517,8 +518,9 @@ class MemoryMind:
                 ctx_text = "\n".join(rater.fmt_line(r, labels=labels) for r in ctx) or "（找不到）"
                 items.append(f"【记录 {j}】{d['content'][:300]}\n当时的聊天：\n{ctx_text}\n当时的气氛：{self._mood_text(cid, d['start'], d['end'])}")
             try:
-                data = rater.parse_json(await self._ask(
-                    rater.PARA_SYSTEM, rater.PARA_PROMPT.format(scale=rater.SCALE, items="\n\n".join(items))))
+                data = rater.parse_json(await self._slot_ask(  # 11-20：走“记忆”那一格
+                    rater.PARA_SYSTEM, rater.PARA_PROMPT.format(scale=rater.SCALE, items="\n\n".join(items)),
+                    "rate.provider_id"))
             except Exception as exc:  # noqa: BLE001
                 self.log.warning(f"memory_weight: 给记忆打分量失败: {exc}")
                 break
@@ -655,9 +657,9 @@ class MemoryMind:
                 return 0
             content = self._docs[h]["content"]
             try:
-                res = fade.parse(await self._ask(fade.FADE_SYSTEM, fade.build_prompt(
-                    content, (now - float(p.get("created") or now)) / 86400, p.get("feel0", ""), self._name_book())),
-                    content)
+                res = fade.parse(await self._slot_ask(fade.FADE_SYSTEM, fade.build_prompt(  # 11-20：走“记忆”那一格
+                    content, (now - float(p.get("created") or now)) / 86400, p.get("feel0", ""), self._name_book()),
+                    "fade.provider_id"), content)
             except Exception as exc:  # noqa: BLE001
                 self.log.warning(f"memory_weight: 褪色失败 {h[:8]}: {exc}")
                 res = None
@@ -722,7 +724,11 @@ class MemoryMind:
         return dt.datetime.fromtimestamp(ts, self._tz).date()
 
     async def _loop_ask(self, system: str, prompt: str) -> str:
-        pid = await slot_model(self.body, "memory", str(self._cfg("loops.provider_id", "") or "").strip())
+        return await self._slot_ask(system, prompt, "loops.provider_id")
+
+    async def _slot_ask(self, system: str, prompt: str, key: str) -> str:
+        """走“记忆”那一格（model_slots.json memory）；配置 key 里填了模型就用它；格子空着才用主模型（_ask）。"""
+        pid = await slot_model(self.body, "memory", str(self._cfg(key, "") or "").strip())
         if not pid:
             return await self._ask(system, prompt)
         return await self.body.generate(pid, prompt, system, timeout=float(self._cfg("timeout_seconds", 120)))
@@ -838,7 +844,8 @@ class MemoryMind:
             prompt = impress.PROMPT.format(who=who, lines=said[-5000:], facts=facts or "（没有）",
                                            old=impress.old_text((imps.get(qq) or {}).get("imp")))
             try:
-                imp = impress.parse(await self._ask(impress.SYSTEM, prompt))
+                # 11-20：原来走主模型（跟聊天抢同一条链），改走“记忆”那一格
+                imp = impress.parse(await self._slot_ask(impress.SYSTEM, prompt, "impress.provider_id"))
             except Exception as exc:  # noqa: BLE001
                 self.log.warning(f"memory_weight: 给 {name} 写印象出错 {type(exc).__name__}: {exc}")
                 break
@@ -1301,9 +1308,10 @@ class MemoryMind:
             if not content or content.startswith("没读成"):
                 continue
             try:
-                verdict = shelf.parse_rate(await self._ask(shelf.rate_system(who), shelf.rate_prompt(
+                verdict = shelf.parse_rate(await self._slot_ask(shelf.rate_system(who), shelf.rate_prompt(  # 11-20：走“记忆”那一格
                     who=who, place=place, said=job["said"], context=context, file=doc.get("name", "文件"),
-                    content=content, reply=job["reply"], feeling=feel_text, kind=doc.get("kind") or "文件")))
+                    content=content, reply=job["reply"], feeling=feel_text, kind=doc.get("kind") or "文件"),
+                    "shelf.provider_id"))
             except Exception as exc:  # noqa: BLE001
                 self.log.warning(f"memory_weight: 珍藏评分量失败 {exc}")
                 verdict = None

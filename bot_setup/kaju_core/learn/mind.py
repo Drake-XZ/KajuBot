@@ -51,6 +51,7 @@ from kaju_core.learn import extract as X  # noqa: E402
 from kaju_core.learn import reading as R  # noqa: E402
 from kaju_core.learn import lessons as LS  # noqa: E402  自己总结教训（11-19）
 from kaju_core.learn import jargon as JG  # noqa: E402  这个群的叫法和黑话（11-19）
+from kaju_core.learn import phrases as PH  # noqa: E402  例句库从真实聊天里长（11-20 晚）
 from kaju_core.learn.reader import Reader, parse_check, CHECK_SYSTEM as R_CHECK_SYSTEM  # noqa: E402
 
 PLUGIN_NAME = "astrbot_plugin_kaju_learn"
@@ -406,6 +407,7 @@ class LearnMind:
             stats["verify"] = await self.verify_facts(now)
             stats["lessons"] = await self.reflect(now)
             stats["jargon"] = await self.learn_jargon(now)
+            stats["phrases"] = await self.learn_phrases(now)
             stats["vec"] = await self._refresh_vectors()
             self._save()
         if any(stats.values()):
@@ -984,6 +986,72 @@ class LearnMind:
         self._note("jargon", f"学了 {day} 群里的叫法：新 {st['new']}、又碰到 {st['more']}、确定了 {st['sure']}、不算 {st['dropped']}")
         return st
 
+    async def learn_phrases(self, now: float, force_day: str = "") -> dict:
+        """例句库从真实聊天里长（phrases.py）：没学过的、已经过完的那几天（往回 phrases.days_back 天），一轮一天；
+        她说的每句带前 10 行后 8 行（群里回话常隔好几条），挑效果好的进 kaju_style\\replyer_learned.json，给回复器当参考。"""
+        if not self._cfg("phrases.enable", True):
+            return {}
+        folder = paths.self_dir("kaju_style")
+        d = PH.load(folder)
+        today = self._day(now)
+        if force_day:
+            day = force_day
+        else:
+            back = int(self._cfg("phrases.days_back", 2))
+            days = [(dt.datetime.fromtimestamp(now, self._tz) - dt.timedelta(days=k)).strftime("%Y-%m-%d") for k in range(1, back + 1)]
+            day = next((x for x in sorted(days) if x < today and x not in d["reflected"]), "")
+            if not day:
+                return {}
+        rows = self._day_rows(day)
+        labels = self.labels()
+        by_chat: dict[str, list[int]] = {}
+        for i, r in enumerate(rows):
+            by_chat.setdefault(r["c"], []).append(i)
+        lines: dict[str, dict] = {}
+        eps = []
+        for chat, idx in by_chat.items():
+            place = self._place(chat, labels)[0]
+            for k, i in enumerate(idx):
+                if rows[i].get("u") != "self" or not PH.as_line(rows[i].get("x", "")):
+                    continue
+                text = []
+                for j in idx[max(0, k - 10):k + 9]:
+                    lines[f"L{j + 1}"] = {"self": rows[j].get("u") == "self", "text": str(rows[j].get("x", "")),
+                                          "chat": chat, "i": j}
+                    text.append(f"L{j + 1} {'【她这句】' if j == i else ''}{self._fmt(rows[j], labels)}")
+                eps.append(f"（{place}）\n" + "\n".join(text))
+        st = {"day": day, "said": len(eps), "picked": 0, "new": 0, "same": 0}
+        size = int(self._cfg("phrases.batch", 8))
+        got: list[dict] = []
+        for b in range(0, len(eps), size):
+            body = "\n\n".join(f"===== 第 {n} 句 =====\n{e}" for n, e in enumerate(eps[b:b + size], 1))
+            try:
+                out = await self._ask(PH.SYSTEM, PH.PROMPT.format(eps=body))
+            except Exception as exc:  # noqa: BLE001
+                self.log.warning(f"kaju_learn: 学 {day} 的例句出错 {type(exc).__name__}: {exc}")
+                return st  # 这天下次再学
+            got += PH.check(PH.parse(out), lines)
+        got = got[:int(self._cfg("phrases.per_day", 6))]
+        st["picked"] = len(got)
+        if got:
+            from kaju_core.voice import replyer
+            vecs = await self._embed([replyer.example_query(g["situation"]) or g["situation"] for g in got])
+            if not vecs:
+                self.log.info(f"kaju_learn: 学 {day} 的例句：向量服务不在，下次再学")
+                return st
+            base = [b["line"] for b in replyer.load_bank()]
+            d = PH.load(folder)  # 随读随写
+            st.update(PH.add(d, got, vecs, base, now, day, int(self._cfg("phrases.max_total", 200))))
+        else:
+            d = PH.load(folder)
+        if day not in d["reflected"]:
+            d["reflected"].append(day)
+        PH.save(folder, d)
+        self._note("phrases", f"学了 {day} 的例句（她说了 {st['said']} 句）：挑中 {st['picked']}、新进库 {st.get('new', 0)}、"
+                   f"和库里太像 {st.get('same', 0)}"
+                   + ("：" + "；".join(g["line"][:30] for g in got) if got else ""))
+        return st
+
     def _jargon(self) -> dict:
         """聊天时用的黑话本（按文件改动时间缓存）。"""
         path = os.path.join(self._dir, JG.FILE)
@@ -1028,9 +1096,11 @@ class LearnMind:
             return []
         thr = float(self._cfg("lessons.threshold", 0.45))
         scored = sorted(((_cos(q[0], self._lvec[x["id"]][1]), x) for x in rows), key=lambda s: -s[0])
-        picked = [x for s, x in scored if s >= thr][: int(self._cfg("lessons.max_show", 3))]
-        for x in picked:
-            LS.mark_shown(x, now)
+        picked_s = [(s, x) for s, x in scored if s >= thr][: int(self._cfg("lessons.max_show", 3))]
+        picked = [x for _, x in picked_s]
+        close = float(self._cfg("lessons.learned_sim", 0.6))
+        for s, x in picked_s:
+            LS.mark_shown(x, now, relevant=s >= close)
         if picked:
             self._dirty = True
         return picked
@@ -1386,6 +1456,17 @@ class LearnMind:
             return self.reading_report(now)
         if what == "黑话":
             return JG.report(JG.load(self._dir), arg)
+        if what == "例句":
+            return PH.report(PH.load(paths.self_dir("kaju_style")))
+        if what == "删例句":
+            folder = paths.self_dir("kaju_style")
+            d = PH.load(folder)
+            x = next((x for x in PH.active(d) if str(x.get("id")) == arg.lstrip("#")), None)
+            if x is None:
+                return f"例句里没有 #{arg}。"
+            x["status"] = "removed"
+            PH.save(folder, d)
+            return f"删掉了例句 #{x['id']}：{x['line'][:60]}"
         if what == "删黑话":
             d = JG.load(self._dir)
             for rows in d["groups"].values():
@@ -1396,7 +1477,7 @@ class LearnMind:
                         self._jargon_cache = None
                         return f"删掉了叫法「{e['term']}」（{e['meaning']}）。"
             return f"没记着「{arg}」这个叫法。"
-        return "用法：/佳树学到的 [最近｜看 名字｜忘掉 名字｜好奇｜在读｜黑话 [群号]｜删黑话 叫法｜消化｜学]"
+        return "用法：/佳树学到的 [最近｜看 名字｜忘掉 名字｜好奇｜在读｜黑话 [群号]｜删黑话 叫法｜例句｜删例句 编号｜消化｜学]"
 
     async def lessons_admin(self, event: Turn, action: str = "", arg: str = ""):
         if action == "删":

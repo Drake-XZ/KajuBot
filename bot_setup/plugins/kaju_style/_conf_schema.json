@@ -132,6 +132,11 @@
         "description": "例子和对方这句至少多像才放（bge-m3 余弦；11-19 起只拿对方这句去比，太不像的宁可不放）",
         "default": 0.5
       },
+      "replyer_live_max": {
+        "type": "int",
+        "description": "从她真实聊天里学到的例句（kaju_learn 每晚挑）一轮最多放几句；0 = 不用",
+        "default": 2
+      },
       "replyer_embed_url": {
         "type": "string",
         "description": "挑例子用的本机向量服务（bge-m3）地址",
@@ -224,16 +229,6 @@
         "description": "重说记录留几天",
         "type": "int",
         "default": 60
-      },
-      "shadow_plan": {
-        "type": "bool",
-        "description": "影子规划器：每轮回复后拿同一份主模型输入在后台多写一份回复指导，只记不发（kaju_data\\self\\kaju_style\\plans）。11-18 起关：大脑模式（main_role=brain）上线后用不上了，开着每轮多调一次模型",
-        "default": false
-      },
-      "shadow_plan_timeout": {
-        "type": "float",
-        "description": "影子规划器每把 key 最多等几秒",
-        "default": 30
       },
       "retry": {
         "description": "照卡写没过时再写几次",

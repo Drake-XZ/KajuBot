@@ -330,8 +330,21 @@ class StyleMind:
             event.set_extra("_ks_how", brain.how_came(sp))  # 被叫 / 插话 / 接着聊：回复器也要知道（11-18 晚）
             self._fix_ctx_clock(req)  # 群聊上下文的时间是本机时钟，改成北京时间（11-18 晚，本机快 3 小时）
             sp = brain.adapt_group_notes(sp)  # 插话 / 接着聊的长说明换成一行“这一轮怎么来的”（11-18）
+            sp = brain.slim(sp)  # 跟大脑规则重复的“说到做到”几条去掉（11-20）
             req.system_prompt = brain.swap_persona(sp, bool(rcfg.get("brain_character", False)), meme=not separate,
                                                    meme_cats=meme_cats)
+            try:  # 群里在聊 AI：这一轮最后提醒一句“说的不是她”（11-20，长规则老被盖过）；出错不影响换大脑
+                parts = getattr(req, "extra_user_content_parts", None)
+                for p in parts or []:  # Memorix 那段的固定规则和技术信息大脑用不上（11-20 精简）
+                    if isinstance(getattr(p, "text", None), str):
+                        p.text = brain.slim_memorix(p.text)
+                if parts and event.get_group_id():
+                    recent = [req.prompt or ""] + [str(getattr(p, "text", "") or "")[-1500:] for p in parts]
+                    tp = next((type(p) for p in parts if isinstance(getattr(p, "text", None), str)), None)
+                    if tp is not None and brain.ai_talk(recent):
+                        parts.append(tp(text=brain.AI_TALK_NOTE))
+            except Exception:  # noqa: BLE001
+                pass
             event.set_extra("_ks_brain", True)
             event.set_extra("_ks_brain_req", req)  # 想的时候群里又来了消息就拿它重想一遍（_replan）
         except Exception as e:  # noqa: BLE001  换不成就照原来写草稿
@@ -894,6 +907,7 @@ class StyleMind:
         if want in cats:  # 大脑点名要发（对方要了 / 她答应了，brain.MEME_ASK）：不掷骰、不再问模型，一定发（11-19）
             event.set_extra("found_emotions", [want])
             event.set_extra("meme_manager_legacy_probability_hit", True)
+            event.set_extra("_ks_meme_label", emoji.label(cats, want))  # kaju_life 记进聊天记录用（11-20）
             self._rec.note("emoji", {"model": "brain", "secs": 0, "pick": want, "raw": "大脑点名"})
             self.log.info(f"kaju_style: 表情包照大脑点名发 {want}")
             return
@@ -912,6 +926,7 @@ class StyleMind:
             self._rec.note("emoji", {"model": pid, "secs": round(time.time() - t0, 1), "pick": key, "raw": (out or "")[:120]})
             if key:
                 event.set_extra("found_emotions", [key])
+                event.set_extra("_ks_meme_label", emoji.label(cats, key))
                 self.log.info(f"kaju_style: 表情包挑了 {key}（{pid}，{time.time() - t0:.1f}s）")
         except Exception as e:  # noqa: BLE001
             self.log.info(f"kaju_style: 挑表情包没成（这次不配图） {type(e).__name__}: {e}")
@@ -1227,6 +1242,8 @@ class StyleMind:
         plan = None
         if event.get_extra("_ks_brain"):  # 主模型这一轮当的是大脑：回来的是 JSON 指导（brain.py）
             plan = brain.parse(draft)
+            if plan is not None and kind != "群聊" and not plan.get("局面"):
+                plan = None  # 私聊只写了“不回”：没东西可排卡，照旧当草稿
             self._rec.note("brain", {"plan": plan, "raw": None if plan else draft[:500]})
             if plan is not None and kind == "群聊":  # 想的时候群里又来了：重想一遍（11-18 晚）
                 plan = await self._replan(event, plan)

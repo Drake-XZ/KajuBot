@@ -49,6 +49,12 @@ def categories(block: str) -> dict[str, str]:
     return out
 
 
+def label(cats: dict[str, str], key: str) -> str:
+    """记进聊天记录的说法：用途的头一小句（“得意、炫耀时”这种），没有就用分类键。"""
+    use = re.split(r"[，。；;,.（(]", str(cats.get(key) or ""))[0].strip()
+    return (use[:16] or key).strip()
+
+
 def own_note(block: str) -> str:
     """“[亲手添加的表情]”那一段（几个分类都说得通时优先这些）。"""
     m = re.search(r"\[亲手添加的表情\]\n([\s\S]*?)(?:\n\n|\n\[)", block or "")

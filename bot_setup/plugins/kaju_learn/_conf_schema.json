@@ -496,5 +496,36 @@
         "default": 10
       }
     }
+  },
+  "phrases": {
+    "type": "object",
+    "description": "例句库从真实聊天里长（11-20 晚，照 MaiBot 表达方式学习）：每晚从她前一天说过、效果好的话里挑几句，给回复器当参考（不改她的话）",
+    "items": {
+      "enable": {
+        "type": "bool",
+        "description": "开关",
+        "default": true
+      },
+      "days_back": {
+        "type": "int",
+        "description": "最多往回学几天",
+        "default": 2
+      },
+      "batch": {
+        "type": "int",
+        "description": "一次给模型看她几句话",
+        "default": 8
+      },
+      "per_day": {
+        "type": "int",
+        "description": "一天最多收几句",
+        "default": 6
+      },
+      "max_total": {
+        "type": "int",
+        "description": "库里最多留几句（满了挤掉最早学的）",
+        "default": 200
+      }
+    }
   }
 }

@@ -929,6 +929,15 @@ out2 = json.dumps({"lessons": [], "关于自己": [
 ]}, ensure_ascii=False)
 got = LS.parse_self(out2, lines2, "2026-11-18")
 expect("关于自己：证据得是别人那行", [g["fact"] for g in got], ["佳树能从表情包库里按分类发表情包"])
+# 11-20：她自己先说过的（编的“之前自己试过 GLM”）、别人只是夸她一句——不算
+lines3 = {"L1": {"self": True, "text": "佳树：佳树也是之前自己试过才知道的，复杂格式一多它们就容易排版崩掉呢"},
+          "L2": {"self": False, "text": "女王大人：这你都知道，格式乱七八糟"}}
+out3 = json.dumps({"关于自己": [{"事实": "佳树之前试过用GLM处理复杂格式文档，知道它容易排版崩掉", "类": "做过", "证据": "L2"}]}, ensure_ascii=False)
+expect("关于自己：她自己先说过的不算", LS.parse_self(out3, lines3, "2026-11-19"), [])
+lx = {"shown": 0, "shown_since": 0}
+LS.mark_shown(lx, time.time(), relevant=False)
+LS.mark_shown(lx, time.time())
+expect("教训：只是有点像才挑上的不算进学会了", (lx["shown"], lx["shown_since"]), (2, 1))
 sf_dir = tempfile.mkdtemp()
 st = SF.add_learned(sf_dir, got + [{"fact": "佳树很喜欢某人", "kind": "有的"}, {"fact": "佳树能刷B站", "kind": "随便"}], time.time())
 expect("关于自己：只收能力和经历、类别得对", (st["new"], st["dropped"]), (1, 2))
@@ -1022,6 +1031,71 @@ expect("核对：那条进了拿不准", any(d["x"] == "已经停服了" for d i
 expect("核对：一天一次", run(plugin.verify_facts(time.time())), 0)
 expect("核对：日期过了、而且是“预计”才算过时", (plugin._date_passed("预计2026年11月1日发售", time.time()),
        plugin._date_passed("没写日期", time.time())), (True, False))
+
+# ------------------------------------------------------------------ 11-20 晚 例句库从真实聊天里长
+PH = importlib.import_module("kaju_core.learn.phrases")
+RP = importlib.import_module("kaju_core.voice.replyer")
+expect("例句：多行连起来、去掉表情包标记和图片行", PH.as_line("诶真的吗&&开心&&\n[图片]\n那佳树也想试试"), "诶真的吗 / 那佳树也想试试")
+pl = {"L1": {"self": False, "text": "[发言人：李四] 我今天去吃疯狂星期四了", "chat": f"g{G}", "i": 0},
+      "L2": {"self": True, "text": "好羡慕~学长点的什么呀", "chat": f"g{G}", "i": 1},
+      "L3": {"self": True, "text": "兄长大人~想兄长了", "chat": f"g{G}", "i": 2},
+      "L4": {"self": False, "text": "原味鸡", "chat": f"g{G}", "i": 3},
+      "L9": {"self": False, "text": "别的群的话", "chat": "g1", "i": 0}}
+got_ph = PH.check([{"她说": "L2", "接的": "L1", "好在哪": "接得自然"},
+                   {"她说": "L3", "接的": "L1"},  # 撒娇的兜底不收
+                   {"她说": "L4", "接的": "L1"},  # 不是她说的
+                   {"她说": "L2", "接的": "L4"},  # 接的在她后面
+                   {"她说": "L2", "接的": "L9"}], pl)  # 别的聊天
+expect("例句：说 AI 的兜底不收（中文挨着也认）", PH.check([{"她说": "L5", "接的": "L1"}],
+       {**pl, "L5": {"self": True, "text": "图里那个不是佳树啦，是别的AI吧", "chat": f"g{G}", "i": 4}}), [])
+expect("例句：一句整个包在另一句里也算太像", PH.too_close("这个主播名字好有意思呀wwww", ["这个主播名字好有意思呀wwww / 他玩得怎么样呀兄长大人"]), True)
+expect("例句：短句不会和什么都算像", PH.too_close("学长说的反向代理是什么意思呀，佳树不太懂", ["什么意思……？"]), False)
+expect("例句：只要其中几行（后面撒娇的行不要）", [g["line"] for g in PH.check([{"她说": "L6", "接的": "L1", "只要": [1]}],
+       {**pl, "L6": {"self": True, "text": "才、才没有呢！\n佳树只是顺着回了几句而已嘛\n兄长大人才是佳树最在意的人", "chat": f"g{G}", "i": 5}})],
+       ["才、才没有呢！"])
+expect("例句：只要的行号不对就不收", PH.check([{"她说": "L2", "接的": "L1", "只要": [3]}], pl), [])
+expect("例句：只收她说的、接的是前面别人那句、不收撒娇",
+       [(g["situation"], g["line"]) for g in got_ph], [("我今天去吃疯狂星期四了", "好羡慕~学长点的什么呀")])
+phd = {"items": [], "reflected": [], "next_id": 1}
+st = PH.add(phd, got_ph + [{"situation": "x", "line": "好羡慕~学长点的什么呀！"}], [[1.0, 0.0], [1.0, 0.0]],
+            ["完全不一样的一句"], time.time(), "2026-11-20", max_total=200)
+expect("例句：和库里太像的不收", (st["new"], st["same"]), (1, 1))
+for k, ln in enumerate(["今天天气真好呀", "那个游戏好难打", "下次一起去看吧"]):
+    PH.add(phd, [{"situation": f"s{k}", "line": ln}], [[0.0, 1.0]], [], time.time() + k + 1, "d", max_total=2)
+expect("例句：库满了挤掉最早的", [x["line"] for x in PH.active(phd)], ["那个游戏好难打", "下次一起去看吧"])
+
+# 插件里：读一天 → 进 kaju_style\replyer_learned.json → 回复器一起挑、一轮最多 2 句
+pday = (dt.datetime.now(TZ) - dt.timedelta(days=1, hours=6)).strftime("%Y-%m-%d")
+with open(os.path.join(life, pday + ".jsonl"), "a", encoding="utf-8") as f:
+    f.write(json.dumps({"t": "20:00", "c": f"g{G}", "u": "555", "n": "555", "x": "我今天去吃疯狂星期四了"}, ensure_ascii=False) + "\n")
+    f.write(json.dumps({"t": "20:01", "c": f"g{G}", "u": "self", "n": "佳树", "x": "好羡慕~学长点的什么呀"}, ensure_ascii=False) + "\n")
+    f.write(json.dumps({"t": "20:02", "c": f"g{G}", "u": "555", "n": "555", "x": "原味鸡哈哈"}, ensure_ascii=False) + "\n")
+
+
+async def fake_ask5(system, prompt):
+    if system == PH.SYSTEM:
+        me = next(line.split(" ", 1)[0] for line in prompt.splitlines() if "【她这句】" in line and "好羡慕" in line)
+        before = next(line.split(" ", 1)[0] for line in prompt.splitlines() if "疯狂星期四" in line)
+        return json.dumps({"picks": [{"她说": me, "接的": before, "好在哪": "顺着问"}]}, ensure_ascii=False)
+    return "{}"
+
+
+plugin._ask = fake_ask5
+st = run(plugin.learn_phrases(time.time(), force_day=pday))
+expect("例句：插件学到一句", (st["picked"], st["new"]), (1, 1))
+expect("例句：这天学过了不再学", run(plugin.learn_phrases(time.time())).get("day") != pday, True)
+bank = RP.load_bank()
+expect("例句：回复器读得到学来的", [b["line"] for b in bank if b.get("src") == "live"], ["好羡慕~学长点的什么呀"])
+expect("例句：清单命令", "好羡慕" in plugin.report("例句"), True)
+lid = PH.active(PH.load(importlib.import_module("kaju_core.paths").self_dir("kaju_style")))[0]["id"]
+expect("例句：删", plugin.report("删例句", str(lid)).startswith("删掉了"), True)
+expect("例句：删了回复器就不用", [b for b in RP.load_bank() if b.get("src") == "live"], [])
+lives = [{"line": f"学来的{k}", "src": "live", "vec": [1.0, 0.0]} for k in range(4)] + \
+        [{"line": f"原来的{k}", "src": "curated", "vec": [0.9, 0.1]} for k in range(4)]
+expect("例句：一轮最多 2 句学来的", [b["src"] for b in RP.pick(lives, [1.0, 0.0], 5, max_live=2)],
+       ["live", "live", "curated", "curated", "curated"])
+expect("例句：0 = 不用", "live" in [b["src"] for b in RP.pick(lives, [1.0, 0.0], 5, max_live=0)], False)
+
 
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED: {failures}")
 sys.exit(1 if failures else 0)

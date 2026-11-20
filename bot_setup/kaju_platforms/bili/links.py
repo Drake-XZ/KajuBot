@@ -15,7 +15,7 @@ import time
 import uuid
 
 from kaju_core.senses import docs, media, music
-from kaju_core.senses.perceive import VIDEO_DIGEST_SYSTEM, SkipVideo
+from kaju_core.senses.perceive import DIGEST_RULES, VIDEO_DIGEST_SYSTEM, SkipVideo
 from kaju_core.senses.perceive import temp_dir as _temp_dir
 from kaju_core.senses.perceive import unlink as _unlink
 
@@ -58,12 +58,7 @@ SUB_MISMATCH = "字幕对不上"
 
 
 VIDEO_DIGEST_PROMPT = """下面是 B 站视频《{title}》（{meta}）的字幕：UP主上传的或自动识别的旁白、台词（自动识别的可能有错字、同音字）。
-有人在 QQ 上把这个视频分享给"佳树"（初三女生）。请你替她看完，写一份"观后笔记"，让她能像自己看过一样跟对方聊：
-- 先一句话说这是什么视频（解说/评测/杂谈/vlog/剧情/MAD/教程/游戏实况……），讲的是什么。
-- 按顺序讲主要内容：讲了哪些观点、理由和例子，结论是什么；剧情类就讲人物和情节。
-- 写出最有意思、最打动人、最好笑或最有争议的地方。
-- 摘 2~3 句有代表性的原话，原样照抄，用「」括起来。
-- 不评价视频好不好，不加你自己的感想；不用 markdown，不分点编号，用自然段写。总共 {limit} 字以内。
+""" + DIGEST_RULES + """
 如果字幕内容跟标题明显对不上（像是别的视频的字幕），只输出四个字：""" + SUB_MISMATCH + """
 
 字幕：

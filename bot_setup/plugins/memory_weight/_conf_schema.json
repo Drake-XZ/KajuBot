@@ -124,6 +124,11 @@
         "type": "int",
         "description": "每轮最多调用几次模型挑铭记",
         "default": 6
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "挑铭记用的模型；空 = 用模型格子表里“记忆”那一格（11-20 起；原来走主模型）",
+        "default": ""
       }
     }
   },
@@ -223,6 +228,11 @@
         "type": "int",
         "description": "每轮最多褪几条（每条调用一次模型）",
         "default": 3
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "记忆褪色用的模型；空 = 用模型格子表里“记忆”那一格（11-20 起；原来走主模型）",
+        "default": ""
       }
     }
   },
@@ -347,6 +357,11 @@
         "type": "float",
         "description": "读完后等多少秒再评分量（等他把想说的话说完、心情判断出来）",
         "default": 90
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "书架打分用的模型；空 = 用模型格子表里“记忆”那一格（11-20 起；原来走主模型）",
+        "default": ""
       }
     }
   },
@@ -464,6 +479,11 @@
         "type": "int",
         "description": "一天最多写几个人",
         "default": 8
+      },
+      "provider_id": {
+        "type": "string",
+        "description": "写印象用的模型；空 = 用模型格子表里“记忆”那一格（11-20 起；原来走主模型）",
+        "default": ""
       }
     }
   }

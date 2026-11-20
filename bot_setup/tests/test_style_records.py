@@ -125,44 +125,6 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(d["contexts"], [{"role": "user", "text": "在吗"}, {"role": "assistant", "text": "在的[image_url]"}])
         self.assertIn("【说具体、说连贯】", d["system_prompt"])
 
-    async def test_shadow_plan(self):
-        """影子规划器（11-14）：有主模型输入就在后台写一份指导存进 plans，只记不发；关掉就不跑。"""
-        import asyncio
-        from kaju_core.senses import omni
-        from kaju_core.voice import shadow
-        calls = []
-
-        async def fake_text(system, user, timeout=0):
-            calls.append((system, user))
-            return '{"局面": "兄长大人说他回来了，轮到佳树回。", "要回应的": "他回来了", "事实": [], "背景": ["汤还热着"]}', 1
-
-        class Req:
-            system_prompt = "你是佳树。"
-            prompt = "我回来了"
-            extra_user_content_parts, contexts, image_urls, model, func_tool = [], [{"role": "user", "content": "在吗"}], [], "", None
-
-        old = omni.text
-        omni.text = fake_text
-        try:
-            for on in (True, False):
-                ev = AstrMessageEvent(text="我回来了")
-                ev.set_extra("_ks_rw_ctx", ["兄长大人：我回来了"])
-                ev.set_extra("_ks_rw_title", "兄长大人")
-                ev.set_extra("_ks_draft_req", Req())
-                resp = LLMResponse("兄长大人回来啦，汤还热着。")
-                await self.make(cfg={"shadow_plan": on}).rewrite_reply(ev, resp)
-                await asyncio.sleep(0.05)
-                self.assertEqual(resp.completion_text, "兄长大人辛苦啦，佳树给你留了热汤哦")  # 发出去的不受影响
-        finally:
-            omni.text = old
-        self.assertEqual(len(calls), 1)
-        self.assertIn("我回来了", calls[0][1])
-        folder = shadow.folder_of(FOLDER)
-        [p] = [json.loads(x) for f in glob.glob(os.path.join(folder, "*.jsonl")) for x in open(f, encoding="utf-8") if x.strip()]
-        self.assertEqual((p["plan"]["要回应的"], p["plan"]["背景"], p["final"]), ("他回来了", ["汤还热着"], "兄长大人辛苦啦，佳树给你留了热汤哦"))
-        self.assertEqual(shadow.parse('{"局面": "x", "事实": "无"}'), {"局面": "x", "要回应的": "", "事实": [], "背景": []})
-        self.assertIsNone(shadow.parse("不是 JSON"))
-
     async def test_mood_recorded(self):
         from kaju_core import parts
 

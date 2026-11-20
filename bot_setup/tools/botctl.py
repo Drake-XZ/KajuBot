@@ -40,8 +40,15 @@ def short_name(name: str) -> str:
 def api(path: str, body: dict, token: str | None = None) -> dict:
     """POST to the AstrBot dashboard API (logs in with the panel's password when token is None)."""
     if token is None:
-        panel = (SETUP / "bot-panel.ps1").read_text(encoding="utf-8-sig")
-        password = re.search(r"^\$Pass\s*=\s*'([^']*)'", panel, re.M)[1]
+        # 11-20：仓库公开后 bot-panel.ps1 里的密码换成了假的，真值在 kaju_data\accounts\panel.json（不进仓库）
+        password = ""
+        try:
+            password = json.loads((SETUP.parent / "kaju_data" / "accounts" / "panel.json").read_text(encoding="utf-8-sig")).get("dashboard_password", "")
+        except (OSError, ValueError):
+            pass
+        if not password:
+            panel = (SETUP / "bot-panel.ps1").read_text(encoding="utf-8-sig")
+            password = re.search(r"^\$Pass\s*=\s*'([^']*)'", panel, re.M)[1]
         token = api("/api/auth/login", {"username": "astrbot", "password": password}, "")["data"]["token"]
     headers = {"Content-Type": "application/json"}
     if token:

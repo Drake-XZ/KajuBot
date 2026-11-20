@@ -63,6 +63,47 @@ class Pure(unittest.TestCase):
         self.assertEqual(brain.parse('{"局面": "x", "表情包": "&&affection&&"}')["表情包"], "affection")
         self.assertNotIn("表情包", brain.parse('{"局面": "x", "表情包": "无"}'))
         self.assertNotIn("表情包", brain.parse('{"局面": "x"}'))
+        bare = brain.parse('```json\n{\n  "回不回": "不回"\n}\n```')  # 11-20 12:25：只写了不回
+        self.assertEqual((bare["回不回"], bare["局面"], bare["要表达的"]), ("不回", "", []))
+        self.assertIsNone(brain.parse('{"回不回": "回"}'))
+        q = brain.parse('{"回不回": "回", "局面": "张三学长说"怎么这么蠢的",接的是他自己的鹈鹕"}')  # 11-20 回放：英文引号后跟逗号
+        self.assertIn("鹈鹕", q["局面"])
+        # 11-20：认谁在跟她说——先看这句接的是谁；接着聊不再一律当成说给别人听
+        self.assertIn("先看这句接的是谁", brain.PLAN_BRAIN)
+        self.assertNotIn("多半是说给别人听", brain.FOLLOW_LINE)
+        self.assertIn("答她刚问的", brain.FOLLOW_LINE)
+        self.assertIn("不是她", brain.CHIME_LINE)
+        # 11-20：被当 AI 说不往自己身上认、懂多少照初三、不道歉过头、不重复自己
+        self.assertIn("懂的也是初三学生懂的", brain.PLAN_BRAIN)
+        self.assertIn("不保证“以后不…”", brain.PLAN_BRAIN)
+        self.assertIn("她最近几条刚说过的意思", brain.PLAN_BRAIN)
+        self.assertTrue(brain.ai_talk(["张三：怎么ai都喜欢原味鸡的"]))
+        self.assertTrue(brain.ai_talk(["用订阅的也没个token统计", "我的bot现在完全是似人"]))
+        self.assertFalse(brain.ai_talk(["晚上杀不杀", "我去kfc吃个疯狂星期四"]))
+        from kaju_core.voice import replyer as _r
+        from kaju_core.learn import lessons as _l
+        self.assertIn("不是你", _r.STYLE)
+        self.assertIn("变拘谨", _l.PROMPT)
+        # 11-20 精简：说到做到里跟大脑规则重复的几条去掉，清单和定时任务留着
+        sp = ("【说到做到】你真的能做到的事只有这些（通过工具完成）：上网搜索。\n- 说要做上面的事，就在这一轮先调用工具做完\n"
+              "- 真正属于以后的事（到点提醒），用定时任务真的约好\n- 只有工具返回成功，才能说\n- 做完后简单说一下你做了什么\n"
+              "- 上面以外的事你做不到，就别答应\n- 讲解查到的东西、汇报结果时可以放宽到 2~4 句、120 字以内\n\n【你记得的关于自己】x")
+        out = brain.slim(sp)
+        self.assertEqual([x[:6] for x in out.split("\n") if x.startswith("- ")], ["- 真正属于", "- 上面以外"])
+        self.assertIn("【你记得的关于自己】", out)
+        self.assertIn("先重试一次", brain.LIVE_EXTRA)
+        img = "【关于图片和视频】[Image: …] 是系统替你看过之后写下的内容\n看到图、表情包、视频时，像真人在QQ上看到朋友发来的东西那样：别复述"
+        self.assertEqual(brain.slim(img).split("\n")[1], brain.IMAGE_BRAIN)
+        mem = ("【Memorix 自动记忆参考】\n以下内容由插件检索\n\n【长期记忆-自动检索】\n【Memorix 长期记忆检索结果】\n查询：晚安\n模式：search\n"
+               "命中：3 条\nscope：aiocqhttp\nchat_id：111111111\n\n给回答模型的使用规则：\n- 命中数大于 0\n- 证据文本只是历史记忆\n\n"
+               "证据列表：\n1. [relation | score=0.500 | hash=4cf29c80bec9] 温水佳树 与光风霁月卍互道 晚安\n"
+               "2. [paragraph | score=0.286 | time=2026/11/05 16:27 | hash=dc72b61c22d2] 聊天中……")
+        s = brain.slim_memorix(mem)
+        for gone in ("查询：", "chat_id", "给回答模型", "命中数", "score=", "hash="):
+            self.assertNotIn(gone, s)
+        self.assertIn("1. [relation] 温水佳树 与光风霁月卍互道 晚安", s)
+        self.assertIn("[paragraph | time=2026/11/05 16:27] 聊天中", s)
+        self.assertEqual(brain.slim_memorix("普通的一段"), "普通的一段")
 
 
 class Flow(unittest.IsolatedAsyncioTestCase):
@@ -609,6 +650,9 @@ class JudgeAndLocalOff(unittest.IsolatedAsyncioTestCase):
         # 插话没自己的东西（附和 / 复述 / 不知道）→ 不回：大脑和把关都写着
         self.assertIn("只是附和", brain.judge_prompt("插话", [], ""))
         self.assertIn("她自己插话（没人叫她）", brain.PLAN_BRAIN)
+        # 11-20：冲着她来的性方面的话：不装傻、不请对方解释，用她自己的方式挡回去
+        self.assertIn("不装傻", brain.PLAN_BRAIN)
+        self.assertIn("拿兄长大人当挡箭牌", brain.PLAN_BRAIN)
 
     async def test_local_writer_off(self):
         from kaju_core.voice import replyer

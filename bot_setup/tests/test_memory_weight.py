@@ -541,6 +541,41 @@ def impress_tests():
 
 
 impress_tests()
+
+
+# 11-20：人物印象走“记忆”那一格（原来走主模型）；格子空着才退回主模型
+async def impress_slot_tests():
+    mw = MemoryWeight(Context(), {"first_delay_seconds": 99999})
+    used = []
+
+    async def slot(slot_name, model="", who=""):
+        used.append(("slot", slot_name))
+        return "mem_head"
+
+    async def gen(pid, prompt, system="", timeout=None):
+        used.append(("generate", pid))
+        return "{}"
+
+    async def main_ask(system, prompt):
+        used.append(("main", ""))
+        return "{}"
+
+    mw.body.slot_model, mw.body.generate, mw._ask = slot, gen, main_ask
+    await mw._slot_ask("s", "p", "impress.provider_id")
+    expect("印象：走记忆那一格", used, [("slot", "memory"), ("generate", "mem_head")])
+    used.clear()
+
+    async def empty(slot_name, model="", who=""):
+        return ""
+
+    mw.body.slot_model = empty
+    await mw._slot_ask("s", "p", "impress.provider_id")
+    expect("印象：格子空着退回主模型", used, [("main", "")])
+    if mw._task:
+        mw._task.cancel()
+
+
+asyncio.run(impress_slot_tests())
 if "--live" in sys.argv:
     asyncio.run(live())
 print("FAILED:" if failures else "all passed", *failures)

@@ -69,7 +69,7 @@ from kaju_core.memory.mind import MemoryMind  # noqa: E402
 from kaju_astr import AstrBody, plugin_log  # noqa: E402
 
 
-@register(PLUGIN_NAME, "dsh", "记忆轻重：郑重的话、常用的事、珍藏的文件记得牢，琐碎闲聊慢慢忘，细节慢慢褪色，一句话能勾起旧回忆；边聊边记刚才的要点；聊着珍藏的文件时一直记得内容；记得对方还没结果的事", "1.10.0")
+@register(PLUGIN_NAME, "dsh", "记忆轻重：郑重的话、常用的事、珍藏的文件记得牢，琐碎闲聊慢慢忘，细节慢慢褪色，一句话能勾起旧回忆；边聊边记刚才的要点；聊着珍藏的文件时一直记得内容；记得对方还没结果的事", "1.10.2")
 class MemoryWeight(MemoryMind, Star):
     def __init__(self, context: Context, config: dict | None = None):
         Star.__init__(self, context)

@@ -178,15 +178,7 @@ class Recorder:
         except Exception as e:  # noqa: BLE001
             self._warn(f"end {type(e).__name__}: {e}")
             return
-        # 影子规划器（11-14，shadow.py）：拿同一份主模型输入在后台写一份回复指导，只记不发。
-        # 11-18 起默认关（rewrite.shadow_plan，兄长定）：大脑模式已经让主模型自己出指导，影子那份多调一次模型、用不上了
-        try:
-            if snap and self._cfg().get("shadow_plan", False):
-                from kaju_core.voice import shadow
-                shadow.spawn(snap, rec, shadow.folder_of(self.folder), self.tz,
-                             float(self._cfg().get("shadow_plan_timeout", 30) or 30), self._warn)
-        except Exception as e:  # noqa: BLE001
-            self._warn(f"shadow_plan {type(e).__name__}: {e}")
+        # 影子规划器（11-14 shadow.py，11-18 关）11-20 删了：大脑模式让主模型自己出指导，用不上了
 
     def note(self, key: str, item: dict) -> None:
         rec = _CUR.get()

@@ -32,6 +32,8 @@ PROMPT = """下面是她前一天说过的几句话，每句带着前后的聊�
 - 她插话以后有人明说她插错了、跑题了
 只根据看得到的迹象判断，看不出来就别写；只是“可以说得更好”的不算。
 只写做事和聊天的本事：答没答对、做没做到、接没接住、场合对不对。不写她的语气、用词、长短，不写怎么表达亲近。
+教训写的是怎么把事做对（先弄清楚再下结论、先查再答），不写成“别开玩笑 / 少说话 / 别插话 / 要道歉”这种让她少说、变拘谨的做法；
+她自己说“下次不…了”不算证据（11-20：兄长只是解释情况，她说了句“下次不乱开玩笑了”）。
 
 已经记着的教训（编号 K 开头；新发现的和其中某条是同一个意思，就写 "同": "K编号"，别另写一条）：
 {known}
@@ -42,6 +44,8 @@ PROMPT = """下面是她前一天说过的几句话，每句带着前后的聊�
 另外看看这些聊天里，别人或程序记录有没有让她弄清楚了一件关于她自己的“能力和经历”的事实（11-19 加）：
 她能做什么、做不到什么、做过什么、有什么（账号、工具、能看能发的东西）。比如别人指出“你已经发过很多张表情包了”，
 就说明“佳树能从表情包库里按分类发表情包”。只收能力和经历；不收性格、感情、关系、长相；她自己嘴上说的不算，要别人那行或程序记录证明。
+别人只是在接她的话、夸她、顺着她说（“这你都知道”“佳树真棒”）不算证明——那证明不了她真做过（11-20：她编了句“之前自己试过 GLM”，
+被夸了一句就记成了“佳树试过 GLM”）。“做过”要程序记录，或者别人自己说出她做过的事。
 每条写成：{{"事实": "佳树……（一句话，三十字以内）", "类": "能做 / 做不到 / 做过 / 有的", "证据": "L 或 R 编号"}}
 
 输出 {{"lessons": [...], "关于自己": [...]}}，没有就写 []。教训最多 6 条，关于自己最多 3 条。
@@ -96,6 +100,7 @@ def parse_self(out: str, lines: dict[str, dict], day: str) -> list[dict]:
     except json.JSONDecodeError:
         return []
     rows = data.get("关于自己") if isinstance(data, dict) else None
+    hers = [v["text"] for v in lines.values() if v.get("self")]
     out_rows = []
     for it in rows or []:
         if not isinstance(it, dict):
@@ -103,7 +108,10 @@ def parse_self(out: str, lines: dict[str, dict], day: str) -> list[dict]:
         line = lines.get(str(it.get("证据") or "").strip().upper())
         if line is None or line.get("self"):
             continue
-        out_rows.append({"fact": str(it.get("事实") or ""), "kind": str(it.get("类") or "").strip(),
+        fact = str(it.get("事实") or "")
+        if any(bigram_overlap(fact, h) >= 0.45 for h in hers):
+            continue  # 这件事她自己先说过：多半是从她自己的话里来的（11-20 编的“试过 GLM”就是这样记进来的）
+        out_rows.append({"fact": fact, "kind": str(it.get("类") or "").strip(),
                          "day": day, "line": str(line.get("text", ""))})
     return out_rows
 
@@ -182,9 +190,11 @@ def usable(store: dict, kind: str) -> list[dict]:
     return [x for x in store["lessons"] if x["status"] == "active" and x.get("where", "都") in ("都", kind)]
 
 
-def mark_shown(x: dict, now: float) -> None:
+def mark_shown(x: dict, now: float, relevant: bool = True) -> None:
+    """relevant = False：只是意思有点像才挑上的（11-20：#4 在聊 GLM、聊图片时被挑上 8 次就算“学会了”），不算进“学会了”。"""
     x["shown"] = x.get("shown", 0) + 1
-    x["shown_since"] = x.get("shown_since", 0) + 1
+    if relevant:
+        x["shown_since"] = x.get("shown_since", 0) + 1
     x["last_shown"] = now
 
 
