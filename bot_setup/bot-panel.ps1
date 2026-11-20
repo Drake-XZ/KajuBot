@@ -45,6 +45,11 @@ $ModelPort = 11435         # 便携 Ollama（local_vision\runtime.ps1 管）：�
 $LumaPort  = 5099          # SnowLuma WebUI
 $ObPort    = 3000          # SnowLuma 给小号开的 OneBot HTTP（小号登录后才会开）
 $BotUin    = '555555555'
+# 真号和面板密码只在本机 kaju_data\accounts\panel.json（不进仓库）；仓库里的是假号
+$PanelLocal = 'D:\JiashuBot\kaju_data\accounts\panel.json'
+$PanelConf  = $null
+if (Test-Path $PanelLocal) { try { $PanelConf = Get-Content $PanelLocal -Raw -Encoding UTF8 | ConvertFrom-Json } catch {} }
+if ($PanelConf -and $PanelConf.bot_uin) { $BotUin = [string]$PanelConf.bot_uin }
 $Task      = 'AstrBot-QQBot'
 $LumaTask  = 'SnowLuma-QQBot'
 $QqPrefix  = 'C:\Program Files\Tencent\QQNT'      # 大号 QQ 安装目录：只拿来当升级来源，不要求它开着
@@ -578,6 +583,7 @@ $Base    = 'http://127.0.0.1:6185'
 $PackId  = 'kaju_memes'
 $User    = 'astrbot'
 $Pass    = 'AstrBot555555555'
+if ($PanelConf -and $PanelConf.dashboard_password) { $Pass = [string]$PanelConf.dashboard_password }
 $DataDir = 'C:\Users\18525\.astrbot_launcher\instances\c3dc9f47-5318-45ea-9792-d00fb8f0f15b\core\data'
 $PackDir = Join-Path $DataDir 'plugin_data\meme_manager\packs\kaju_memes'
 
