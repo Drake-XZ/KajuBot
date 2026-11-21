@@ -394,68 +394,9 @@ expect("卸载还原 _select_provider", am._select_provider is _select_provider,
 expect("卸载还原 text_chat", router.ORIG in Prov.__dict__, False)
 expect("卸载还原 AstrBody", router.ORIG in AstrBody.__dict__, False)
 
-# ------------------------------------------------------------------ 出卡叠着问（omni.text）
 import time  # noqa: E402
 
 from kaju_core.senses import omni  # noqa: E402
-
-fresh_health()
-KEYS = [{"name": n, "base_url": f"https://{n}.test", "api_key": n, "model": "m"} for n in ("hardys", "aigo", "daitu")]
-BEHAVE = {}
-asked = []
-
-
-def fake_gemini_text(k, system, user, thinking, t):
-    asked.append(k["name"])
-    kind, sec = BEHAVE[k["name"]]
-    time.sleep(min(sec, t))
-    if kind == "ok" and sec <= t:
-        return "卡:" + k["name"]
-    if kind == "ok":
-        raise TimeoutError("timed out")
-    raise RuntimeError("502")
-
-
-real_keys, real_call = omni.gemini_keys, omni._gemini_text
-omni.gemini_keys, omni._gemini_text = (lambda: KEYS), fake_gemini_text
-try:
-    BEHAVE.update(hardys=("ok", 0.05), aigo=("ok", 0.05), daitu=("ok", 0.05))
-    asked.clear()
-    expect("第一个快就只问它", (asyncio.run(omni.text("s", "u", timeout=1, stagger=0.3)), asked), (("卡:hardys", 1), ["hardys"]))
-    # 第一个慢（还没超时）：过了 stagger 同时问第二个，第二个先回
-    BEHAVE.update(hardys=("ok", 0.8), aigo=("ok", 0.05))
-    asked.clear()
-
-    async def timed():  # 在协程里计时（asyncio.run 退出时会等后台线程睡完，机器人里不会）
-        t0 = time.monotonic()
-        r = await omni.text("s", "u", timeout=1, stagger=0.2)
-        return r, time.monotonic() - t0
-
-    out, took = asyncio.run(timed())
-    expect("慢的没停、同时问下一个，谁先回用谁", (out, asked[:2]), (("卡:aigo", 2), ["hardys", "aigo"]))
-    expect("没有排队等满", took < 0.6, True)
-    # 报错了马上补问下一个（不用等 stagger）
-    fresh_health()
-    BEHAVE.update(hardys=("bad", 0.01), aigo=("bad", 0.01), daitu=("ok", 0.05))
-    asked.clear()
-    t0 = time.monotonic()
-    out = asyncio.run(omni.text("s", "u", timeout=1, stagger=5))
-    expect("报错马上换下一个", (out, asked, time.monotonic() - t0 < 1), (("卡:daitu", 3), ["hardys", "aigo", "daitu"], True))
-    # 原来会判“全挂”的情况：每个 key 等 timeout 都不够，但 daitu 在 timeout×2 内能回
-    fresh_health()
-    BEHAVE.update(hardys=("ok", 9), aigo=("bad", 0.01), daitu=("ok", 0.35))
-    out = asyncio.run(omni.text("s", "u", timeout=0.25, stagger=0.05))
-    expect("每个 key 多等一点：慢一点的 daitu 也能答上", out, ("卡:daitu", 3))
-    # 真的全挂
-    fresh_health()
-    BEHAVE.update(hardys=("bad", 0.01), aigo=("bad", 0.01), daitu=("bad", 0.01))
-    try:
-        asyncio.run(omni.text("s", "u", timeout=1, stagger=0.1))
-        expect("全挂抛 GeminiDown", "没抛", "GeminiDown")
-    except omni.GeminiDown as e:
-        expect("全挂抛 GeminiDown，带每个的原因", str(e).split("没答上来 ")[1], "1:RuntimeError 2:RuntimeError 3:RuntimeError")
-finally:
-    omni.gemini_keys, omni._gemini_text = real_keys, real_call
 
 # gemini_keys.json："video": false 不看视频；写坏了接着用上次读对的
 from kaju_core import paths  # noqa: E402
@@ -471,7 +412,7 @@ omni._list_cache = (0.0, [])
 real_omni_key = omni.key
 omni.key = lambda: {}
 try:
-    expect("三个 key 都能出卡", [k["api_key"] for k in omni.gemini_keys()], ["k1", "k2", "k3"])
+    expect("三个 key 都在列表里", [k["api_key"] for k in omni.gemini_keys()], ["k1", "k2", "k3"])
     expect("看视频跳过 video:false 和 OpenAI 格式的", [k["api_key"] for k in omni.keys()], ["k1"])
     time.sleep(0.05)
     with open(kp, "w", encoding="utf-8") as f:
@@ -483,7 +424,7 @@ finally:
     os.remove(kp)
     omni._list_cache = (0.0, [])
 
-# 按功能挑（model_router.json 的 tasks）：出卡带 Claude 后备、视频不给 Claude、enabled:false、每条自己的思考档
+# 按功能挑（model_router.json 的 tasks）：动图带 Claude 后备、视频不给 Claude、enabled:false、每条自己的思考档
 fresh_health()
 tp = paths.account("model_router.json")
 txp = paths.account(omni.TEXT_LIST)
@@ -495,7 +436,7 @@ with open(txp, "w", encoding="utf-8") as f:
     json.dump({"keys": [{"name": "claude", "api_key": "c1", "base_url": "https://c.test", "model": "sonnet", "format": "openai"}]}, f)
 with open(tp, "w", encoding="utf-8") as f:
     json.dump({"tasks": {
-        "card": {"budget": 25, "models": [
+        "gif": {"budget": 25, "models": [
             {"from": "gemini_keys", "match": "hardys", "think": "low", "quality": 9, "price": 1, "secs": 4},
             {"from": "gemini_keys", "match": "aigo", "think": "high", "quality": 8, "price": 2, "secs": 8},
             {"from": "text_models", "match": "claude", "quality": 6, "price": 0.2, "secs": 6}]},
@@ -513,38 +454,23 @@ for x in (kp, txp, tp):
 omni._list_cache = (0.0, [])
 omni._text_cache = (0.0, [])
 omni._table_cache = (0.0, {})
-card_plan = omni.plan("card", omni.gemini_keys())
-expect("出卡顺序（Claude 当后备）", [(k["api_key"], t) for k, t in card_plan], [("g1", "low"), ("g2", "high"), ("c1", "")])
+gif_plan = omni.plan("gif", omni.look_keys())
+expect("动图顺序（Claude 当后备）", [(k["api_key"], t) for k, t in gif_plan], [("g1", "low"), ("g2", "high"), ("c1", "")])
 expect("视频只给原生、能看视频的", [k["api_key"] for k, _ in omni.plan("video", omni.keys())], ["g2"])
 expect("enabled:false 不用、model 能换", [(k["api_key"], k["model"]) for k, _ in omni.plan("image", omni.look_keys())],
        [("g3", "lite-v2"), ("c1", "sonnet")])
 expect("表里没写的功能照原来顺序", [k["api_key"] for k, _ in omni.plan("audio", omni.keys())], ["g2"])
 
-# 出卡：Gemini 两个都挂，Claude 接住；思考档按每条的传
-said = []
-real_call = omni._gemini_text
-
-
-def fake_text(k, system, user, thinking, t):
-    said.append((k["api_key"], thinking))
-    if k["api_key"] != "c1":
-        raise RuntimeError("502")
-    return "卡:claude"
-
-
-omni._gemini_text = fake_text
 try:
-    expect("Gemini 挂了 Claude 出卡", asyncio.run(omni.text("s", "u", timeout=1, stagger=5)), ("卡:claude", 3))
-    expect("每条的思考档", sorted(said), [("c1", ""), ("g1", "low"), ("g2", "high")])
+    pass
 finally:
-    omni._gemini_text = real_call
     for x in (kp, txp, tp):
         os.remove(x)
     omni._list_cache = (0.0, [])
     omni._text_cache = (0.0, [])
     omni._table_cache = (0.0, {})
 
-# 每条可以指定格式：出卡 Gemini 走 OpenAI、Claude 走原生；视频只给原生
+# 每条可以指定格式：Gemini 走 OpenAI、Claude 走原生；视频只给原生
 fresh_health()
 with open(kp, "w", encoding="utf-8") as f:
     json.dump({"keys": [{"name": "aigo", "api_key": "g2", "base_url": "https://a.test", "model": "g38"}]}, f)
@@ -552,7 +478,7 @@ with open(txp, "w", encoding="utf-8") as f:
     json.dump({"keys": [{"name": "claude", "api_key": "c1", "base_url": "https://c.test/v1", "model": "sonnet", "format": "openai"}]}, f)
 with open(tp, "w", encoding="utf-8") as f:
     json.dump({"tasks": {
-        "card": {"models": [{"from": "gemini_keys", "match": "aigo", "format": "openai", "quality": 9, "price": 1},
+        "gif": {"models": [{"from": "gemini_keys", "match": "aigo", "format": "openai", "quality": 9, "price": 1},
                             {"from": "text_models", "match": "claude", "format": "anthropic", "quality": 6, "price": 1}]},
         "video": {"models": [{"from": "gemini_keys", "match": "aigo", "format": "openai", "quality": 9, "price": 1}]}}}, f)
 for x in (kp, txp, tp):
@@ -560,7 +486,7 @@ for x in (kp, txp, tp):
 omni._list_cache = (0.0, [])
 omni._text_cache = (0.0, [])
 omni._table_cache = (0.0, {})
-expect("format 换格式", [k["fmt"] for k, _ in omni.plan("card", omni.gemini_keys())], ["openai", "anthropic"])
+expect("format 换格式", [k["fmt"] for k, _ in omni.plan("gif", omni.look_keys())], ["openai", "anthropic"])
 expect("视频不给 OpenAI 格式", omni.plan("video", omni.keys()), [])
 
 sent = []
@@ -590,8 +516,8 @@ import urllib.request  # noqa: E402
 real_open = urllib.request.urlopen
 urllib.request.urlopen = fake_urlopen
 try:
-    ck = next(k for k, _ in omni.plan("card", omni.gemini_keys()) if k["fmt"] == "anthropic")
-    expect("Claude 原生出卡", omni._gemini_text(ck, "sys", "u", "", 5), "卡:原生")
+    ck = next(k for k, _ in omni.plan("gif", omni.look_keys()) if k["fmt"] == "anthropic")
+    expect("Claude 原生文字", omni._anthropic_chat(ck, "sys", [{"type": "text", "text": "u"}], 5), "卡:原生")
     url, hdr, body = sent[-1]
     expect("Claude 原生的地址和头", (url, hdr.get("X-api-key"), body["system"], body["messages"][0]["content"][0]["text"]),
            ("https://c.test/v1/messages", "c1", "sys", "u"))
@@ -604,14 +530,6 @@ finally:
     omni._list_cache = (0.0, [])
     omni._text_cache = (0.0, [])
     omni._table_cache = (0.0, {})
-
-from kaju_core.voice import mind  # noqa: E402
-
-expect("报信：太慢和报错分开说",
-       mind.down_summary("Gemini 的 key 全都没答上来 1:URLError 2:TimeoutError 3:TimeoutError 4:HTTPError 5:URLError", 5),
-       "5个 Gemini 的 key 都试了：2个回得太慢、等不及，3个报错或连不上。")
-expect("报信：主模型那一路", mind.down_summary("main", 5).startswith("写回复的主模型"), True)
-expect("报信：原因里没有编号就照旧", mind.down_summary("全挂了 https://relay.example/v1 key...aaa8", 5), "5个 Gemini 的 key 都没答上来。")
 
 print("FAILED:", fails if fails else "none")
 sys.exit(1 if fails else 0)

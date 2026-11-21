@@ -9,7 +9,7 @@
   learner  知识本消化（kaju_learn），以后的“表达方式学习”；空着用 utils
   fast     要马上出结果的小活：问句把关（asks）、读书核对（kaju_learn reading check）；空着用 utils
   emoji    挑表情包（第二步再接）
-回复器（kaju_style rewrite.replyer_models）、看图看视频（gemini_keys / model_router）、出卡、核对（guard_provider_id）、
+回复器（kaju_style rewrite.replyer_models）、看图看视频（gemini_keys / model_router）、核对（guard_provider_id）、
 语音转文字、向量（本机）本来就各管各的，不在这张表里。
 """
 

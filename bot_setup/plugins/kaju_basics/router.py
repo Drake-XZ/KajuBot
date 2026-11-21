@@ -2,7 +2,7 @@
 
 原来主模型和后备是配置里写死的顺序：aigocode 一挂，每条消息都先在它那儿等五十秒、再在 hardysapi 那儿白等 15 秒。现在：
 
-1. 记成绩：AstrBot 每次调模型（text_chat）都记下成没成、几秒（kaju_core/senses/health.py，和出卡共用一份）。
+1. 记成绩：AstrBot 每次调模型（text_chat）都记下成没成、几秒（kaju_core/senses/health.py，和看图共用一份）。
    连着失败 2 次的账号冷却 10 分钟，排到最后；每 probe_minutes 分钟用“回一个字”探一下冷却中的 / 好久没用的，好了就放回来。
 2. 每条消息现排：候选 = 配置里的主模型 + 后备 + model_router.json 里登记的（比如同一个模型的不同思考档）。
    这条想要哪档（场合）：私聊、问句、长消息 → high（预算 budget_high 秒），群里闲聊 → low（budget_low 秒）。
@@ -191,7 +191,7 @@ def head_can_see(ranked: list[dict], table: dict) -> list[dict]:
     return [ranked[i]] + ranked[:i] + ranked[i + 1:]
 
 
-rank = health.rank  # 2026-11-14 挪进 kaju_core/senses/health.py：出卡、看图、看视频也用同一个排法
+rank = health.rank  # 2026-11-14 挪进 kaju_core/senses/health.py：看图、看视频也用同一个排法
 
 
 class Router:

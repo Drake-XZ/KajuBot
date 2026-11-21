@@ -1,14 +1,14 @@
 """几家模型中转最近好不好用（2026-11-14 兄长：“动态调整调用的 api 顺序”）。
 
-主模型那边（kaju_basics 的 router.py 记 AstrBot 每次请求）和出卡那边（omni.text / omni.look 记 gemini_keys.json 每个 key）
+主模型那边（kaju_basics 的 router.py 记 AstrBot 每次请求）和看图那边（omni.look 等记 gemini_keys.json 每个 key）
 记在同一个文件里：kaju_data/cache/model_health.json。两边可能是热重载前后的两份模块，所以不靠内存共享，每次读写都对一下文件。
 
 - 账号（account）：中转主机 + key 的指纹。同一个账号挂了，它下面的模型 / 思考档全都一起冷却。
-- 槽（slot）：账号 + 模型 + 哪一档，记最近的耗时；大请求（主模型那种带工具、几万字的）和小请求（出卡、探测）分开记。
+- 槽（slot）：账号 + 模型 + 哪一档，记最近的耗时；大请求（主模型那种带工具、几万字的）和小请求（看图、探测）分开记。
 - 连着失败 fail_streak 次 → 冷却 cool_minutes 分钟，这段时间排到最后；冷却中只要成功一次（真实请求或探测）就解除。
-- 大请求失败另记（2026-11-15）：bb-api 的 Gemini 小请求（探测“回一个字”、出卡）次次成、大请求（她回话）次次 429 / 超时，
+- 大请求失败另记（2026-11-15）：bb-api 的 Gemini 小请求（探测“回一个字”）次次成、大请求（她回话）次次 429 / 超时，
   探测一成功就把失败清零，换一档又当没失败过 → 又被排第一、白等 80 秒。现在大请求失败记 big_fail，
-  只有大请求成功才清；rank 里 big_bad_minutes 分钟内这个账号的每一档在大请求上都靠后（主模型用，出卡 / 看图不用）。
+  只有大请求成功才清；rank 里 big_bad_minutes 分钟内这个账号的每一档在大请求上都靠后（主模型用，看图不用）。
   share_tiers：某一档还没有大请求成绩时，先借同账号同模型别的档的成绩，不直接用表里的预估。
 """
 
@@ -181,7 +181,7 @@ def why(acc: str) -> str:
 
 
 def order_keys(keys: list[dict], now: float | None = None) -> list[dict]:
-    """出卡 / 看图用：gemini_keys.json 的顺序（兄长排的）不动，只把正在冷却的账号挪到最后。"""
+    """看图用：gemini_keys.json 的顺序（兄长排的）不动，只把正在冷却的账号挪到最后。"""
     hot, cold = [], []
     for k in keys:
         (cold if cooled(account(k.get("base_url", ""), k.get("api_key", "")), now) else hot).append(k)
@@ -196,7 +196,7 @@ def rank(cands: list[dict], want: str, cfg: dict, now: float | None = None) -> l
     budget = float(cfg.get("budget_high" if want == "high" else "budget_low", 25 if want == "high" else 12))
     pw = float(cfg.get("price_weight", 0.5))
     tb = float(cfg.get("think_bonus", 1.0))
-    bbm = float(cfg.get("big_bad_minutes", 0) or 0)  # 主模型传 15；出卡 / 看图不传 = 不看
+    bbm = float(cfg.get("big_bad_minutes", 0) or 0)  # 主模型传 15；看图不传 = 不看
     share = bool(cfg.get("share_tiers", False))
     ok, slow, cold = [], [], []
     for i, c in enumerate(cands):

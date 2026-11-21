@@ -15,7 +15,7 @@ os.environ["STUB_DATA"] = tempfile.mkdtemp()
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context
-from kaju_core.voice import card, rewrite
+from kaju_core.voice import rewrite
 from kaju_style.main import KajuStyle
 
 
@@ -100,8 +100,6 @@ async def main():
     context.stars = []
     await style.rewrite_snapshot(private, ProviderRequest("SYS", contexts=[{"role": "user", "content": "先去休息吧"}]))
     assert private.get_extra("_ks_rw_ctx")[0] == "兄长大人：先去休息吧"
-    assert card.fix_formal("您说的对", "说得对", "") == "您说的对"
-    assert card.fix_formal("您说的对", "说得对", "小雨学姐") == "小雨学姐说的对"
     assert style._restyle("佳树今天买了很多好吃的东西，晚上准备和大家一起吃") == "佳树今天买了很多好吃的东西，晚上准备和大家一起吃"
     style.config["rhythm"] = {"split_long": 20}
     assert "\n" in style._restyle("佳树今天买了很多好吃的东西，晚上准备和大家一起吃")

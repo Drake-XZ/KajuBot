@@ -95,10 +95,10 @@ def _entry(d, default_model: str, api: str) -> dict:
            "name": str(d.get("name") or "")}
     if api == "gemini":
         # "format": "openai"：这个中转站只认 OpenAI 格式（/v1/chat/completions，2026-11-12 hardysapi：原生格式直接断开）。
-        # 出卡（文字）和看图走 OpenAI 格式；看视频 / 听歌不走它（它收不下几 MB 的文件，1.5MB 就 413），换下一个 key。
+        # 看图走 OpenAI 格式；看视频 / 听歌不走它（它收不下几 MB 的文件，1.5MB 就 413），换下一个 key。
         out["fmt"] = "openai" if str(d.get("format") or "").strip().lower() == "openai" else "native"
-    # 2026-11-13 兄长：一条可以写自己的 "timeout"（秒，出卡 / 看图最多等这么久，见 key_timeout）；
-    # "look_last": true = 看图时排到最后（hardysapi：出卡优先它，看图优先 aigocode，然后按原顺序）
+    # 2026-11-13 兄长：一条可以写自己的 "timeout"（秒，看图最多等这么久，见 key_timeout）；
+    # "look_last": true = 看图时排到最后（hardysapi：看图优先 aigocode，然后按原顺序）
     if d.get("timeout") not in (None, ""):
         out["timeout"] = d.get("timeout")
     if d.get("look_last"):
@@ -193,12 +193,12 @@ def available(cfg: dict) -> bool:
 
 # ------------------------------------------------------------ 按功能挑模型（2026-11-14）
 # 兄长：“能不能根据不同的功能分别给不同模型及其思考强度排序”。kaju_data/accounts/model_router.json 的 "tasks" 段：
-#   {"card": {"budget": 25, "models": [{"from": "gemini_keys"|"text_models", "match": "aigocode", "model": "...",
+#   {"image": {"budget": 40, "models": [{"from": "gemini_keys"|"text_models", "match": "aigocode", "model": "...",
 #                                       "think": "low"|"high"|"", "quality": 9, "price": 2, "secs": 8}, …]},
-#    "image": …, "gif": …, "video": …, "audio": …}
+#    "gif": …, "video": …, "audio": …}
 # match：在那个文件里按 name + base_url 找（第一个对上的）；model 不写就用那条自己的。和主模型共用 health.py 的成绩和排法：
 # 冷却中的最后、超预算的往后、预算内的按 质量 − 价格×0.5 排。没有 tasks 段或那个功能没写，就照原来的顺序（文件顺序 + 冷却的挪后）。
-TASKS = ("card", "image", "gif", "video", "audio")
+TASKS = ("image", "gif", "video", "audio")
 TEXT_LIST = "text_models.json"  # 别家（Claude）的 key：只做文字和看图，不看视频听音频
 _table_cache: tuple[float, dict] = (0.0, {})
 _text_cache: tuple[float, list] = (0.0, [])
@@ -253,7 +253,7 @@ def _resolve(row: dict) -> dict:
         return {}
     out = {**k, "model": str(row.get("model") or k["model"])}
     # "format"：这个功能用哪种请求格式（native / openai / anthropic），不写就用那条 key 自己的。
-    # 2026-11-14 格式对比：出卡 Gemini 走 OpenAI 格式快 2~6 倍；Claude 出卡、看图走原生格式快 2~3 倍；
+    # 2026-11-14 格式对比：出卡 Gemini 走 OpenAI 格式快 2~6 倍；Claude 看图走原生格式快 2~3 倍；
     # 视频、音频只能原生（OpenAI 格式会“成功”但说没收到文件、或者编一个）。
     fmt = str(row.get("format") or "").lower()
     if fmt in ("native", "openai", "anthropic"):
@@ -276,19 +276,19 @@ def plan(task: str, fallback: list[dict]) -> list[tuple[dict, str | None]]:
         if not k or (task in ("video", "audio") and (k.get("fmt") != "native" or k.get("no_video"))):
             continue  # 找不到那条 key（删了 / 停用）或者它收不了视频音频
         acc = health.account(k["base_url"], k["api_key"])
-        cands.append({"pid": f"{task}-{i}", "account": acc, "slot": f"{acc}|{k['model']}|{task}", "big": task == "card",
+        cands.append({"pid": f"{task}-{i}", "account": acc, "slot": f"{acc}|{k['model']}|{task}", "big": False,
                       "quality": row.get("quality", 5), "price": row.get("price", 1), "think": "",
                       "secs": row.get("secs"), "k": k,
                       # 没写 think：Gemini 用调用方给的；Claude（text_models）不带思考参数（调用方的 low 是 Gemini 的说法）
                       "t": row.get("think", "" if row.get("from") == "text_models" else None)})
-    budget = float(spec.get("budget") or {"card": 25, "image": 40, "gif": 40}.get(task, 120))
+    budget = float(spec.get("budget") or {"image": 40, "gif": 40}.get(task, 120))
     ranked = health.rank(cands, "high", {"budget_high": budget, "price_weight": spec.get("price_weight", 0.5), "think_bonus": 0})
     return [(x["k"], x["t"] if x["t"] is not None else None) for x in ranked]
 
 
 def plan_names(task: str) -> list[str]:
     """看现在这个功能的顺序（日志、控制台用）。"""
-    fb = {"card": gemini_keys(), "image": look_keys(), "gif": look_keys()}.get(task, keys())
+    fb = {"image": look_keys(), "gif": look_keys()}.get(task, keys())
     return [f"{k.get('name') or k['base_url']} {k['model']}{'（' + t + '）' if t else ''}" for k, t in plan(task, fb)]
 
 
@@ -558,10 +558,6 @@ def _gemini_look(k: dict, mime: str, data: bytes, prompt: str, timeout: float, t
     return text
 
 
-class GeminiDown(RuntimeError):
-    """gemini_keys.json 里的 key 全都没答上来（报错、超时、没填）。决定 20：这时她在群里不说话，私聊只告诉兄长挂了。"""
-
-
 def _openai_chat(k: dict, messages: list, timeout: float, extra: dict | None = None) -> str:
     """只认 OpenAI 格式的 Gemini 中转（gemini_keys.json 里 "format": "openai" 的那几条）。"""
     import urllib.request
@@ -581,7 +577,7 @@ def _openai_chat(k: dict, messages: list, timeout: float, extra: dict | None = N
 
 
 def _anthropic_chat(k: dict, system: str, content: list, timeout: float) -> str:
-    """Claude 原生格式（POST /v1/messages，头 x-api-key）。2026-11-14 格式对比：Claude 中转出卡、看图用它比 OpenAI 格式快 2~3 倍。"""
+    """Claude 原生格式（POST /v1/messages，头 x-api-key）。2026-11-14 格式对比：Claude 中转看图用它比 OpenAI 格式快 2~3 倍。"""
     import urllib.request
 
     body = {"model": k["model"], "max_tokens": 2000, "messages": [{"role": "user", "content": content}]}
@@ -599,35 +595,6 @@ def _anthropic_chat(k: dict, system: str, content: list, timeout: float) -> str:
     if not text:
         raise RuntimeError(f"Claude 没回字：{json.dumps(d, ensure_ascii=False)[:160]}")
     return text
-
-
-def _gemini_text(k: dict, system: str, user: str, thinking: str, timeout: float) -> str:
-    import urllib.request
-
-    if k.get("fmt") == "anthropic":
-        return _anthropic_chat(k, system, [{"type": "text", "text": user}], timeout)
-    if k.get("fmt") == "openai":
-        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
-        return _openai_chat(k, msgs, timeout, {"reasoning_effort": thinking} if thinking else None)
-    body = {"contents": [{"role": "user", "parts": [{"text": user}]}]}
-    if system:
-        body["systemInstruction"] = {"parts": [{"text": system}]}
-    if thinking:  # 2026-11-12 实测：默认会想几百 token（有时 30~120 秒），"low" 约 2.5 秒；"minimal" 这个模型不认
-        body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": thinking}}
-    req = urllib.request.Request(
-        k["base_url"].rstrip("/") + f"/v1beta/models/{k['model']}:generateContent", json.dumps(body).encode(),
-        {"Content-Type": "application/json", "User-Agent": "python-client", "x-goog-api-key": k["api_key"],
-         "Authorization": "Bearer " + k["api_key"]})
-    with _open(req, timeout) as r:
-        d = json.load(r)
-    parts = ((d.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
-    text = "".join(str(p.get("text") or "") for p in parts if not p.get("thought")).strip()
-    if not text:
-        raise RuntimeError(f"Gemini 没回字：{json.dumps(d, ensure_ascii=False)[:160]}")
-    return text
-
-
-BIG_CHARS = 12_000  # 比这长算“大请求”（health.py 大小分开记耗时）
 
 
 def _by_health(ks: list[dict]) -> list[dict]:
@@ -650,8 +617,8 @@ def _label(k: dict) -> str:
     return (k.get("name") or k.get("base_url", "").split("//")[-1]).split("（")[0].strip() + " " + str(k.get("model", ""))
 
 
-def _note(k: dict, ok: bool, secs: float, big: bool, why: str = "", task: str = "card") -> None:
-    """这个 key 这次成没成、几秒，记进和主模型共用的成绩（health.py）。耗时按功能分开记（出卡 / 看图 / 视频…各一个槽）。"""
+def _note(k: dict, ok: bool, secs: float, big: bool, why: str = "", task: str = "image") -> None:
+    """这个 key 这次成没成、几秒，记进和主模型共用的成绩（health.py）。耗时按功能分开记（看图 / 动图 / 视频…各一个槽）。"""
     try:
         from kaju_core.senses import health
         acc = health.account(k.get("base_url", ""), k.get("api_key", ""))
@@ -662,71 +629,13 @@ def _note(k: dict, ok: bool, secs: float, big: bool, why: str = "", task: str = 
 
 
 def key_timeout(k: dict, default: float) -> float:
-    """gemini_keys.json 里一条可以写自己的 "timeout"（秒）：出卡、看图时这个 key 最多等这么久（比默认短才用）。
+    """gemini_keys.json 里一条可以写自己的 "timeout"（秒）：看图时这个 key 最多等这么久（比默认短才用）。
     2026-11-13 兄长：hardysapi 等 15 秒（它正常 2~6 秒，卡住时一等就是一两分钟）。看视频听歌不用它。"""
     try:
         t = float(k.get("timeout") or 0)
     except (TypeError, ValueError):
         t = 0.0
     return min(default, t) if t > 0 else default
-
-
-TEXT_STAGGER = 8.0  # 出卡：前面的 key 过了这么多秒还没回，就同时问下一个（不停掉前面的）
-
-
-async def text(system: str, user: str, timeout: float = 20, thinking: str = "low",
-               stagger: float | None = None) -> tuple[str, int]:
-    """纯文字问 Gemini（新写手的出卡用，2026-11-12）。返回 (回答, 用的是第几个 key，从 1 数)；全都不行抛 GeminiDown。测试会换掉这个函数。
-
-    2026-11-14 改成叠着问：原来一个等满 timeout 才换下一个，几家都慢的时候（hardysapi 15 秒限时、daitu 那次 23 秒）
-    5 个排着队白等一分多钟，最后报“全挂了”——其实 daitu 再多等 3 秒就回了。现在先问第一个，stagger 秒还没回就同时问下一个，
-    谁先答上来用谁；某个报错了马上补问下一个。因为有别的 key 一起在问，每个 key 能等 timeout×2（自己写了 "timeout" 的仍按它）。
-    顺序：model_router.json 的 tasks.card（按功能挑，可以带 Claude 当后备、每条自己的思考档）；没写就 gemini_keys.json 从上往下、冷却的挪后。"""
-    ks = plan("card", gemini_keys())
-    if not ks:
-        raise GeminiDown("没有 Gemini 的密钥")
-    big = len(system) + len(user) > BIG_CHARS
-    stagger = TEXT_STAGGER if stagger is None else max(0.0, float(stagger))
-    per = float(timeout) * 2
-    errs: list[str] = []
-    running: dict[asyncio.Future, tuple[dict, float, int]] = {}
-    nxt = 0
-
-    def launch() -> None:
-        nonlocal nxt
-        k, th = ks[nxt]
-        nxt += 1
-        t = key_timeout(k, per)
-        fut = asyncio.ensure_future(asyncio.wait_for(
-            asyncio.to_thread(_gemini_text, k, system, user, thinking if th is None else th, t), t + 3))
-        running[fut] = (k, time.monotonic(), nxt)
-
-    launch()
-    try:
-        while running:
-            more = nxt < len(ks)
-            done, _ = await asyncio.wait(list(running), timeout=stagger if more else None,
-                                         return_when=asyncio.FIRST_COMPLETED)
-            if not done:  # 前面的还在等：同时问下一个
-                _log().info(f"kaju_style: 出卡 {stagger:.0f} 秒还没回，同时问第 {nxt + 1} 个（{_label(ks[nxt][0])}）")
-                launch()
-                continue
-            for fut in done:
-                k, t0, n = running.pop(fut)
-                e = fut.exception()
-                if e is None:
-                    _note(k, True, time.monotonic() - t0, big)
-                    return fut.result(), n
-                _note(k, False, time.monotonic() - t0, big, type(e).__name__)
-                errs.append(f"{n}:{type(e).__name__}")
-                _log().warning(f"kaju_style: 出卡第 {n} 个（{_label(k)}）没答上来（{time.monotonic() - t0:.0f}s）"
-                               f"{type(e).__name__}: {str(e)[:120]}")
-            if nxt < len(ks):  # 有一个失败了：马上补问下一个
-                launch()
-    finally:
-        for fut in running:
-            fut.cancel()
-    raise GeminiDown("Gemini 的 key 全都没答上来 " + " ".join(errs))
 
 
 def _log():

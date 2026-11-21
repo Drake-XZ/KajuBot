@@ -579,7 +579,7 @@ class FollowThrough(Star):
             out = await style.polish(text, ctx, said=(snap or {}).get("user_text", ""),
                                      title=title or "兄长大人", kind="群聊" if group else "私聊")
         except Exception as e:  # noqa: BLE001
-            if only_writer or type(e).__name__ == "GeminiDown":
+            if only_writer:
                 logger.info(f"follow_through: 回复器没写成，这次不补发 {type(e).__name__}: {e}")
                 return None
             out = text

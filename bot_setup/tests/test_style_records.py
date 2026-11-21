@@ -19,12 +19,11 @@ os.environ["STUB_DATA"] = DATA
 from astrbot.api.event import AstrMessageEvent  # noqa: E402
 from astrbot.api.provider import LLMResponse  # noqa: E402
 from astrbot.api.star import Context  # noqa: E402
-from kaju_core.voice import card  # noqa: E402
-from kaju_core.voice import records  # noqa: E402
+from kaju_core.voice import records, replyer  # noqa: E402
 from kaju_style.main import KajuStyle  # noqa: E402
 
 FOLDER = os.path.join(DATA, "astrbot_plugin_kaju_style", "rewrites")
-CARD = "要点卡：\n场合：私聊\n对象：兄长大人\n回哪句：我回来了\n情绪：开心\n要点：汤还热着"
+PLAN = '{"局面": "兄长大人回来了", "要表达的": ["分享：汤还热着"]}'
 
 
 def rows():
@@ -45,16 +44,26 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         clear()
 
     def make(self, writer="兄长大人辛苦啦，佳树给你留了热汤哦", guard=(False, "", True), cfg=None):
-        # 只写一遍（retry 0）、writer_only 关着（查“没过就发原稿”时记成什么）：抽卡换成假的，写手、核对也是假的
-        style = KajuStyle(Context(), {"rewrite": {"enable": True, "card_model": "kaju-writer-p6-8b-r7k", "retry": 0,
-                                                  "writer_only": False,
+        # 只写一遍（retry 0）、writer_only 关着（查“没过就发原稿”时记成什么）：草稿整理成指导、回复器、核对都是假的
+        style = KajuStyle(Context(), {"rewrite": {"enable": True, "retry": 0, "writer_only": False,
                                                   "shadow_plan": False, **(cfg or {})}})  # 影子规划器只在它自己的测试里开
         self.guard_calls = []
+        real = replyer.reply
 
-        async def local_chat(system, user):
-            if isinstance(writer, Exception):
-                raise writer
-            return writer
+        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+            if isinstance(writer, Exception):  # 真的回复器自己接住报错，只在 errors 里写一笔
+                return "", {"model": "", "secs": 0.1, "examples": [], "errors": [f"测试: {writer}"]}
+            return writer, {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
+        replyer.reply = fake_reply
+        self.addCleanup(setattr, replyer, "reply", real)
+
+        async def model_id(model="", who=""):
+            return model or "main"
+
+        async def generate(pid, prompt, system="", timeout=None):
+            return PLAN
+        style.body.model_id, style.body.generate = model_id, generate
+        style._mood_words = lambda **kw: ""
 
         async def guard_fn(said, draft, new, title="", ctx=None):
             self.guard_calls.append(new)
@@ -62,11 +71,8 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
                 raise guard
             return guard
 
-        async def extract(ctx, draft, kind, title, **k):
-            return CARD
-
-        style._local_chat, style._extract_card, style._guard = local_chat, extract, guard_fn
-        style._rec.install()  # 换了假的写手/核对之后重新包一层
+        style._guard = guard_fn
+        style._rec.install()  # 换了假的核对之后重新包一层
         return style
 
     async def reply(self, style, draft="兄长大人回来啦，汤还热着。", ctx=("兄长大人：我回来了",), group=""):
@@ -85,13 +91,12 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((r["src"], r["kind"], r["outcome"], r["used"]), ("reply", "私聊", "used", True))
         self.assertEqual((r["draft"], r["final"], r["ctx"], r["said"]),
                          ("兄长大人回来啦，汤还热着。", out, ["兄长大人：我回来了"], "我回来了"))
-        w = r["writer"][0]
-        self.assertEqual(w["user"], card.write_prompt_v4(["兄长大人：我回来了"], CARD))
-        self.assertEqual(w["system_sha"], records._sha(card.SYSTEM_V4))
-        self.assertEqual((w["model"], w["out"]), ("kaju-writer-p6-8b-r7k", out))
-        self.assertEqual(r["card"][0]["card"], CARD)
+        w = r["replyer"][0]
+        self.assertEqual((w["model"], w["text"]), ("测试", out))
+        self.assertEqual(r["from_draft"][0]["plan"]["要表达的"], ["分享：汤还热着"])  # 这一轮没换成大脑：草稿先整理成指导
         self.assertEqual((r["guard"][0]["bad"], r["guard"][0]["new"]), (False, out))
-        self.assertEqual(r["config"]["card_model"], "kaju-writer-p6-8b-r7k")
+        self.assertNotIn("card_model", r["config"])
+        self.assertNotIn("writer", r)
         self.assertNotIn("_token", r)
 
     async def test_draft_input_recorded(self):
@@ -163,15 +168,15 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out, "兄长大人回来啦，汤还热着。")
         [r] = rows()
         self.assertEqual((r["outcome"], r["used"], r["guard"][0]["why"]), ("guard_rejected", False, "编了没说过的事"))
-        self.assertEqual(r["writer"][0]["out"], "兄长大人辛苦啦，佳树给你留了热汤哦")
+        self.assertEqual(r["replyer"][0]["text"], "兄长大人辛苦啦，佳树给你留了热汤哦")
 
     async def test_guard_error_and_writer_error(self):
         await self.reply(self.make(guard=TimeoutError("慢")))
-        await self.reply(self.make(writer=ConnectionError("ollama 没开")))
+        await self.reply(self.make(writer=ConnectionError("中转站没开")))
         a, b = rows()
         self.assertEqual(a["outcome"], "guard_error")
         self.assertEqual((b["outcome"], b["final"]), ("writer_error", "兄长大人回来啦，汤还热着。"))
-        self.assertIn("ollama 没开", b["writer"][0]["error"])
+        self.assertIn("中转站没开", b["replyer"][0]["errors"][0])
 
     async def test_skipped_and_not_rewrite_turn(self):
         style = self.make()
@@ -179,7 +184,7 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rows(), [])
         await self.reply(style, draft="[SKIP]")  # 重说层跳过：记下来是 skipped
         [r] = rows()
-        self.assertEqual((r["outcome"], r["writer"]), ("skipped", []))
+        self.assertEqual((r["outcome"], r.get("replyer")), ("skipped", None))
 
     async def test_group_kind(self):
         await self.reply(self.make(), group="123")
@@ -202,7 +207,7 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         style = self.make()
         style._rec.install()
         await self.reply(style)
-        self.assertEqual(len(rows()[0]["writer"]), 1)
+        self.assertEqual(len(rows()[0]["guard"]), 1)
 
     async def test_recorder_failure_does_not_break_reply(self):
         style = self.make()
@@ -219,7 +224,9 @@ class RecordTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sorted(os.listdir(FOLDER)), ["2026-11-01.jsonl"])
 
     def test_outcome_unusable(self):
-        self.assertEqual(records.outcome({"writer": [{"out": "x"}], "guard": []}), "unusable")
+        self.assertEqual(records.outcome({"replyer": [{"text": "x"}], "guard": []}), "unusable")
+        self.assertEqual(records.outcome({"replyer": [{"text": "", "errors": ["502"]}]}), "writer_error")
+        self.assertEqual(records.outcome({"guard": []}), "skipped")
 
 
 if __name__ == "__main__":

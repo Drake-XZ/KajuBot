@@ -248,13 +248,16 @@ expect("opener: guard silent → keep", rewrite.guard_opener_ok('{"bad": false, 
 
 async def rewrite_hook_tests():
     ks = importlib.import_module("kaju_style.main")
-    # writer_only 关着：这几条查的是“写手不行就发原稿”那种退路（11-18 删了第一版卡后，writer_only 默认开，这里明写关）
+    # writer_only 关着：这几条查的是“写不成就发原稿”那种退路（writer_only 默认开，这里明写关）
     st = ks.KajuStyle(Context(), {"bedtime": {"enable": False}, "rewrite": {"enable": True, "retry": 0, "writer_only": False}})
     calls = []
 
-    async def fake_local(ctx, draft, kind, title, **k):
+    async def fake_plan(ctx, draft, kind, title):
         calls.append((ctx, draft))
-        return "好的兄长大人，水饺是什么馅的呀", "卡"
+        return {"局面": "兄长大人煮了水饺", "要表达的": ["反问：什么馅"]}
+
+    async def fake_write(ctx, plan, kind, title, ref=""):
+        return "好的兄长大人，水饺是什么馅的呀"
 
     async def guard_ok(said, draft, new, title="", ctx=None):
         return False, ""
@@ -262,7 +265,7 @@ async def rewrite_hook_tests():
     async def guard_no(said, draft, new, title="", ctx=None):
         return True, "加了草稿没有的事"
 
-    st._new_wording, st._guard = fake_local, guard_ok
+    st._plan_from_draft, st._write, st._guard = fake_plan, fake_write, guard_ok
     ev = AstrMessageEvent(text="我煮了水饺")
     req = ProviderRequest("SYS", contexts=[{"role": "user", "content": "在吗"}, {"role": "assistant", "content": "佳树在哦"}])
     await st.rewrite_snapshot(ev, req)
@@ -289,17 +292,17 @@ async def rewrite_hook_tests():
     r4 = LLMResponse("兄长大人吃水饺呀，是什么馅的呀？")
     await st.rewrite_reply(ev4, r4)
     expect("rewrite hook: opener out of place → stripped", r4.completion_text, "水饺是什么馅的呀")
-    # 本地模型出错 → 原稿
+    # 整理指导的模型出错 → 原稿
     async def boom(*a, **k):
-        raise ConnectionError("ollama down")
-    st._new_wording, st._guard = boom, guard_ok
+        raise ConnectionError("relay down")
+    st._plan_from_draft, st._guard = boom, guard_ok
     ev3 = AstrMessageEvent(text="在吗")
     await st.rewrite_snapshot(ev3, ProviderRequest("SYS", contexts=[]))
     r3 = LLMResponse("佳树在哦")
     await st.rewrite_reply(ev3, r3)
-    expect("rewrite hook: local down → draft", r3.completion_text, "佳树在哦")
+    expect("rewrite hook: planner down → draft", r3.completion_text, "佳树在哦")
     # 已经回晚了（这条等了 40 秒）：不重说，先发出去
-    st._new_wording = fake_local
+    st._plan_from_draft = fake_plan
     n = len(calls)
     ev5 = AstrMessageEvent(text="我煮了水饺")
     ev5.set_extra("_kaju_quote_t", __import__("time").time() - 40)
@@ -365,32 +368,32 @@ expect("wait: own words of a douyin share", _kbm.own_words(DY), "这个好洗脑
 expect("wait: own words of a bili share", _kbm.own_words("【能看吗合集】 https://b23.tv/iOcLavf 佳树看看"), "佳树看看")
 
 async def say_from_card_tests():
-    """看视频前先说的那句：本地写手照卡写（2026-11-08 兄长：不要固定的几句）。"""
+    """看视频前先说的那句：插件给的要点拼成指导，回复器写（2026-11-08 兄长：不要固定的几句；11-21 起没有卡、没有本地写手）。"""
+    from kaju_core.voice import replyer as rp
     KS = importlib.import_module("kaju_style.main").KajuStyle
     st = KS(Context(), {"bedtime": {"enable": False}, "rewrite": {"enable": True}})
-    seen = []
+    st._mood_words = lambda **kw: ""
+    seen, out_text = [], ["好嘞，佳树先去看看兄长大人说的洗脑歌～"]
 
-    async def local_chat(system, user):
-        seen.append((system, user))
-        return "好嘞，佳树先去看看兄长大人说的洗脑歌～"
-
-    st._local_chat = local_chat
-    ev = AstrMessageEvent(text="这个好洗脑")
-    out = await st.say_from_card(ev, ["佳树先去看这个视频", "看完再说"], emotion="期待", attitude="答应",
-                                 reply_to="这个好洗脑", said="[分享了一个视频] 这个好洗脑")
-    user = seen[0][1] if seen else ""
-    expect("say_from_card: writer output", out, "好嘞，佳树先去看看兄长大人说的洗脑歌～")
-    expect("say_from_card: card + context", ("要说到的：佳树先去看这个视频；看完再说" in user, "接的是“这个好洗脑”" in user,
-                                             "：[分享了一个视频] 这个好洗脑" in user), (True, True, True))
-
-    async def leaky(system, user):
-        return "要说到的：佳树先去看"
-
-    st._local_chat = leaky
-    expect("say_from_card: leaked card → nothing", await st.say_from_card(ev, ["佳树先去看这个视频"]), "")
-    off = KS(Context(), {"bedtime": {"enable": False}, "rewrite": {"enable": False}})
-    off._local_chat = local_chat
-    expect("say_from_card: writer off → nothing", await off.say_from_card(ev, ["佳树先去看这个视频"]), "")
+    async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+        seen.append((list(ctx), dict(plan)))
+        return out_text[0], {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
+    real, rp.reply = rp.reply, fake_reply
+    try:
+        ev = AstrMessageEvent(text="这个好洗脑")
+        out = await st.say_from_card(ev, ["佳树先去看这个视频", "看完再说"], emotion="期待", attitude="答应",
+                                     reply_to="这个好洗脑", said="[分享了一个视频] 这个好洗脑")
+        ctx, plan = seen[0] if seen else ([], {})
+        expect("say_from_card: replyer output", out, "好嘞，佳树先去看看兄长大人说的洗脑歌～")
+        expect("say_from_card: plan + context", (plan.get("要表达的"), "接的是“这个好洗脑”" in plan.get("局面", ""),
+                                                 any("：[分享了一个视频] 这个好洗脑" in c for c in ctx)),
+               (["佳树先去看这个视频", "看完再说"], True, True))
+        out_text[0] = "要表达的：佳树先去看"
+        expect("say_from_card: leaked plan → nothing", await st.say_from_card(ev, ["佳树先去看这个视频"]), "")
+        off = KS(Context(), {"bedtime": {"enable": False}, "rewrite": {"enable": False}})
+        expect("say_from_card: rewrite off → nothing", await off.say_from_card(ev, ["佳树先去看这个视频"]), "")
+    finally:
+        rp.reply = real
 
 
 asyncio.run(say_from_card_tests())
@@ -2416,7 +2419,7 @@ async def ollama_tests():
 asyncio.run(ollama_tests())
 
 
-# ------------------------------------------------------------------ prewarm: kaju_basics loads bge-m3, kaju_style the writer
+# ------------------------------------------------------------------ prewarm: kaju_basics loads bge-m3
 def prewarm_server():
     import http.server
     import threading
@@ -2442,8 +2445,6 @@ def prewarm_server():
 
 warm_port, warm_hits = prewarm_server()
 warm_kb = importlib.import_module("kaju_basics.main").KajuBasics(Context(), {"ollama": {"port": warm_port}})
-warm_st = importlib.import_module("kaju_style.main").KajuStyle(Context(), {
-    "rewrite": {"enable": True, "base_url": f"http://127.0.0.1:{warm_port}/v1", "card_model": "kaju-writer-p4-8b-k"}})
 
 
 async def prewarm_tests():
@@ -2451,32 +2452,27 @@ async def prewarm_tests():
         await asyncio.sleep(0.5)
 
     await warm_kb.prewarm_local(AstrMessageEvent(group="1", text="随便聊聊"))
-    await warm_st.rewrite_prewarm(AstrMessageEvent(group="1", text="随便聊聊"))
     await settle()
     expect("prewarm: group chatter without calling her does nothing", warm_hits, [])
     await warm_kb.prewarm_local(AstrMessageEvent(text="在吗"))
-    await warm_st.rewrite_prewarm(AstrMessageEvent(text="在吗"))
     await settle()
-    expect("prewarm: private message loads both", sorted(warm_hits, key=lambda h: h[0]),
-           [("/api/embed", {"model": "bge-m3", "input": []}), ("/api/generate", {"model": "kaju-writer-p4-8b-k"})])
+    expect("prewarm: private message loads bge-m3", warm_hits, [("/api/embed", {"model": "bge-m3", "input": []})])
     await warm_kb.prewarm_local(AstrMessageEvent(text="还在吗"))
-    await warm_st.rewrite_prewarm(AstrMessageEvent(text="还在吗"))
     await settle()
-    expect("prewarm: at most once a minute", len(warm_hits), 2)
-    warm_kb._prewarmed = warm_st._rw_warm = 0.0
+    expect("prewarm: at most once a minute", len(warm_hits), 1)
+    warm_kb._prewarmed = 0.0
     called = AstrMessageEvent(group="1", text="佳树你看")
     called.is_at_or_wake_command = True
     await warm_kb.prewarm_local(called)
-    await warm_st.rewrite_prewarm(called)
     await settle()
-    expect("prewarm: someone calling her in a group", len(warm_hits), 4)
-    warm_kb._prewarmed = warm_st._rw_warm = 0.0
+    expect("prewarm: someone calling her in a group", len(warm_hits), 2)
+    warm_kb._prewarmed = 0.0
     warm_kb.config["ollama"]["prewarm_embed"] = ""
-    warm_st.config["rewrite"]["enable"] = False
     await warm_kb.prewarm_local(AstrMessageEvent(text="在吗"))
-    await warm_st.rewrite_prewarm(AstrMessageEvent(text="在吗"))
     await settle()
-    expect("prewarm: off when not configured / rewrite disabled", len(warm_hits), 4)
+    expect("prewarm: off when not configured", len(warm_hits), 2)
+    expect("prewarm: kaju_style has no writer warm-up", hasattr(importlib.import_module("kaju_style.main").KajuStyle,
+                                                                "rewrite_prewarm"), False)
 
 
 asyncio.run(prewarm_tests())

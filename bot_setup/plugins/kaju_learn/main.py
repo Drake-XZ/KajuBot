@@ -64,7 +64,7 @@ class KajuLearn(LearnMind, Star):
         """上网查过的：查到的内容也学进去。"""
         return await LearnMind.learn_from_tool(self, event, tool, tool_args, tool_result)
 
-    @filter.on_llm_response(priority=11)  # kaju_style 的问句把关（10）、出卡重说（5）之前：先把读书情况改对
+    @filter.on_llm_response(priority=11)  # kaju_style 的问句把关（10）、照指导写（5）之前：先把读书情况改对
     async def reading_check(self, event: AstrMessageEvent, resp: LLMResponse):
         """草稿里说的读书进度、情节对着实际核对；答应了接着读 / 先停却没改的，照她答应的改过来。"""
         return await LearnMind.reading_check(self, event, resp)

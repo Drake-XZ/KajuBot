@@ -5,10 +5,12 @@
 又补：“要表达什么”一定不能是正文的风格。
 
 所以这里的提示词只让大模型想清楚“这一轮怎么回”，写成标签式的指导（意图：关键信息），不写她会说出口的句子；
-说法、口吻、人格全交给本地写手（训练给的）。这里没有草稿（不先写一遍她的话）。
+说法、口吻全交给回复器（replyer.py）。这里没有草稿（不先写一遍她的话）。
 
-离线回放 voice_train\\scripts\\replay_brain.py；线上 rewrite.main_role = "brain"（mind.py brain_request → swap_persona）。
+离线回放 voice_train\\scripts\\replay_brain.py；线上 mind.py brain_request → swap_persona。
 11-18 加“她是什么样的人”（character / rewrite.brain_character，默认关）。
+11-21 兄长：不要第四版要点卡了。大脑没给出 JSON 就拿同一份材料再问一遍（RETHINK_NOTE）；
+插件主动说的话（草稿）也先整理成同样格式的指导（FROM_DRAFT），再交给回复器。
 """
 
 import json
@@ -183,17 +185,24 @@ def brain_prompt(snap: dict, max_ctx: int = 20, max_chars: int = 30000) -> str:
 LABEL = re.compile(r"^\s*([^：:]{1,4})[：:]\s*(.+)$")
 
 
-def parse(out: str) -> dict | None:
+def loads_obj(out: str):
+    """模型回的文字里抠出 {…} 解析；中文里夹了英文引号（提醒佳树"逻辑条条"的话题、喊了一声"妈妈"）
+    就换成中文引号再试一次。解析不了返回 None。"""
     m = re.search(r"\{.*\}", out or "", re.S)
     if not m:
         return None
     try:
-        v = json.loads(m.group(0))
-    except ValueError:  # 中文里夹了英文引号（提醒佳树"逻辑条条"的话题）：换成中文引号再试一次
-        try:
-            v = json.loads(re.sub(r'([一-鿿])"([^"\n,:{}\[\]]{1,30})"(?=[一-鿿，。、！？,])', r"\1“\2”", m.group(0)))
-        except ValueError:
-            return None
+        return json.loads(m.group(0))
+    except ValueError:
+        pass
+    try:
+        return json.loads(re.sub(r'([一-鿿])"([^"\n,:{}\[\]]{1,30})"(?=[一-鿿，。、！？,])', r"\1“\2”", m.group(0)))
+    except ValueError:
+        return None
+
+
+def parse(out: str) -> dict | None:
+    v = loads_obj(out)
     if not isinstance(v, dict):
         return None
     if not str(v.get("局面") or "").strip():
@@ -205,27 +214,14 @@ def parse(out: str) -> dict | None:
         if isinstance(x, str):
             x = [x] if x.strip() and x.strip() not in ("无", "[]") else []
         return [str(i).strip().rstrip("。；;") for i in (x or []) if str(i).strip()]
-    out = {"回不回": "不回" if "不" in str(v.get("回不回") or "回") else "回", "局面": str(v["局面"]).strip(),
-           "要接住的": str(v.get("要接住的") or "").strip(), "对方需要": str(v.get("对方需要") or "").strip(),
-           "要表达的": items(v.get("要表达的"))[:3],
-           "背景": items(v.get("背景"))[:2], "情绪": str(v.get("情绪") or "").strip()}
+    plan = {"回不回": "不回" if "不" in str(v.get("回不回") or "回") else "回", "局面": str(v["局面"]).strip(),
+            "要接住的": str(v.get("要接住的") or "").strip(), "对方需要": str(v.get("对方需要") or "").strip(),
+            "要表达的": items(v.get("要表达的"))[:3],
+            "背景": items(v.get("背景"))[:2], "情绪": str(v.get("情绪") or "").strip()}
     meme = str(v.get("表情包") or "").strip().strip("&").strip()
     if meme and meme not in ("无", "不发", "false", "False"):
-        out["表情包"] = meme  # 点名要发的表情包分类（MEME_ASK）；mind._pick_emoji 认
-    return out
-
-
-def card_of(kind: str, title: str, p: dict, mood: str = "") -> str:
-    """指导 → 写手的卡（行名照训练过的：局面。要接住的 / 要说到的 / 背景 / 心情；要说到的里是标签式的“类别：内容”）。"""
-    jm = p["局面"].rstrip("。")
-    if p.get("要接住的"):
-        jm += "。要接住的：" + p["要接住的"].rstrip("。")
-    lines = [f"场合：{kind or '私聊'}", f"对象：{title or '无'}", f"局面：{jm}", "要说到的：" + ("；".join(p.get("要表达的") or []) or "无")]
-    if p.get("背景"):
-        lines.append("背景：" + "；".join(p["背景"]))
-    if mood:
-        lines.append(mood)
-    return "\n".join(lines)
+        plan["表情包"] = meme  # 点名要发的表情包分类（MEME_ASK）；mind._pick_emoji 认
+    return plan
 
 
 def sentence_like(item: str) -> bool:
@@ -359,14 +355,53 @@ def parse_judge(out: str) -> tuple[str, str]:
     return verdict, (why.group(1) if why else "")
 
 
-def replan_prompt(prompt: str, history: list[tuple[str, str]], new_lines: list[str]) -> str:
-    """重新想一遍用的提示：前面几轮对话（压成文字）+ 原来这一轮的材料 + 新来的几条。history = [(role, text)]。"""
+def _with_history(prompt: str, history: list[tuple[str, str]], other: str = "群里") -> str:
+    """前面几轮对话（压成文字）+ 原来这一轮的材料。history = [(role, text)]。"""
     head = ""
     if history:
-        rows = [f"{'佳树（你）' if r == 'assistant' else '群里'}：{t.strip()[:600]}" for r, t in history if t and t.strip()]
+        rows = [f"{'佳树（你）' if r == 'assistant' else other}：{t.strip()[:600]}" for r, t in history if t and t.strip()]
         if rows:
             head = "【前面的对话】\n" + "\n".join(rows) + "\n\n【这一轮】\n"
-    return head + (prompt or "") + "\n\n" + REPLAN_NOTE.format(lines="\n".join(new_lines))
+    return head + (prompt or "")
+
+
+def replan_prompt(prompt: str, history: list[tuple[str, str]], new_lines: list[str]) -> str:
+    """重新想一遍用的提示：前面几轮对话 + 原来这一轮的材料 + 新来的几条。"""
+    return _with_history(prompt, history) + "\n\n" + REPLAN_NOTE.format(lines="\n".join(new_lines))
+
+
+# 大脑没给出能用的指导（11-21 两次：兄长喊她“妈妈”，Claude 顺着直接用她的口吻写了回复）：同一份材料再问一遍。
+# 原来这时把它写的话当草稿、让 Gemini 摘成第四版要点卡；兄长不要那种卡了，这里只要大脑自己的格式。
+RETHINK_NOTE = ("【上一遍没按要求】\n你上一遍回的不是要求的 JSON（{why}）：\n{raw}\n"
+                "你是她的大脑，不替她说话，不写她会说出口的句子。重新想这一轮，照上面要求的格式，只输出 JSON。")
+
+
+def rethink_prompt(prompt: str, history: list[tuple[str, str]], raw: str, group: bool = False) -> str:
+    why = "直接写成了她要说的话" if raw and "{" not in raw else "格式不对、读不出来"
+    return (_with_history(prompt, history, "群里" if group else "对方") + "\n\n"
+            + RETHINK_NOTE.format(why=why, raw=(raw or "（空的）").strip()[:400]))
+
+
+# 插件主动让她说的话（刷到视频想分享、补上答应过的事、QQ 空间说说）：别的模型先起了草，
+# 这里把草稿整理成和大脑一样的指导，再交给回复器用她的口吻说（11-21，替掉第四版要点卡）。
+FROM_DRAFT = f"""你是佳树（{ME}）的“大脑”。她这会儿要主动发一段话，别的部分已经替她起了草（草稿常常写得太满、带毛病）。
+你把草稿整理成这一轮的指导，交给写手用她自己的口吻重新说；你不模仿她的语气，不写她会说出口的句子。只输出 JSON：
+{{"局面": "...", "要接住的": "...", "要表达的": ["类别：内容"], "背景": ["类别：内容"], "情绪": "..."}}
+
+局面：一两句话：她是在跟谁说、为什么这会儿开口（比如刚刷到一个视频想分享给他、之前答应的事做完了来告诉他）。每句写出主语。
+要接住的：聊天里对方最后那句还有要她接的，写一句（主语是对方）；没有就写空的。
+要表达的：草稿里要说的意思，1～3 条，按草稿的顺序，每条写成“类别：内容”——
+  类别从这些里挑：分享、回答、立场、反应、反问、答应、提醒、道谢、安慰；内容是关键信息的短语（十几个字以内）。
+  只放草稿里有的事：不加草稿没有的经历、叮嘱、追问；草稿里要紧的事（看了什么、觉得怎样、要问什么、做成了什么）不丢。
+  **内容一定不能是正文的样子**：不写称呼、语气词、感叹，不写引号里的原话，不写“佳树觉得…”这种整句。
+背景：写手要用到、聊天里看不到的事实（视频标题、作者、数字、名字），0～2 条，同样写成“类别：内容”。
+情绪：草稿里她的感觉，几个字。"""
+
+
+def from_draft_prompt(kind: str, title: str, ctx: list[str], draft: str) -> str:
+    to = "QQ 空间的说说（发给所有人看）" if kind == "说说" else f"{kind}，对{title or '对方'}说"
+    return (f"场合：{to}\n\n最近的聊天：\n" + ("\n".join(ctx) if ctx else "（没有前文）")
+            + f"\n\n草稿：\n{(draft or '').strip()}")
 
 
 # AstrBot 群聊上下文（builtin_stars/astrbot/group_chat_context.py）每行“[昵称/HH:MM:SS]: ”用的是本机时钟，

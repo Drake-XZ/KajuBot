@@ -17,11 +17,11 @@ os.environ["STUB_DATA"] = tempfile.mkdtemp()
 from astrbot.api.event import AstrMessageEvent  # noqa: E402
 from astrbot.api.provider import LLMResponse  # noqa: E402
 from astrbot.api.star import Context  # noqa: E402
-from kaju_core.voice import routine  # noqa: E402
+from kaju_core.voice import replyer, routine  # noqa: E402
 from kaju_style.main import KajuStyle  # noqa: E402
 
 DRAFT = "兄长大人晚安呀 / 佳树也爱兄长大人"
-CARD = "场合：私聊\n对象：兄长大人\n情绪：开心\n态度：撒娇\n要点：佳树回晚安；佳树也爱兄长\n问：无"
+PLAN = '{"局面": "兄长大人道晚安、说爱她", "要表达的": ["反应：回晚安", "反应：也爱他"]}'
 OLD = "今天的水饺皮好厚呀，佳树只吃了三个就饱了"
 SAME = "兄长大人，今天的水饺皮好厚呀，佳树只吃了三个就饱了呢"
 FRESH = "晚安兄长大人，佳树也最喜欢兄长大人了"
@@ -72,18 +72,27 @@ class RoutineLive(unittest.IsolatedAsyncioTestCase):
         self.writes, self.wcalls, self.gcalls = list(writes), [], []
         guards = list(guards or [(False, "", True)] * len(writes))
 
-        async def extract(ctx, draft, kind, title):
-            return CARD
+        real = replyer.reply
 
-        async def local_chat(system, user):
-            self.wcalls.append(user)
-            return self.writes.pop(0)
+        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+            self.wcalls.append(replyer.plan_text(plan))
+            return self.writes.pop(0), {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
+        replyer.reply = fake_reply
+        self.addCleanup(setattr, replyer, "reply", real)
+
+        async def model_id(model="", who=""):
+            return model or "main"
+
+        async def generate(pid, prompt, system="", timeout=None):
+            return PLAN  # 草稿整理成的指导
+        style.body.model_id, style.body.generate = model_id, generate
+        style._mood_words = lambda **kw: ""
 
         async def guard(said, draft, new, title="", ctx=None):
             self.gcalls.append(new)
             return guards.pop(0)
 
-        style._extract_card, style._local_chat, style._guard = extract, local_chat, guard
+        style._guard = guard
         self.ev = AstrMessageEvent(text="晚安小佳树，我爱你")
         mind = getattr(style, "mind", style)
         q = mind._sent_of(self.ev.unified_msg_origin)
@@ -107,7 +116,7 @@ class RoutineLive(unittest.IsolatedAsyncioTestCase):
         s = self.make([SAME, FRESH], cfg={"routine": "on"})
         self.assertEqual(await self.reply(s), FRESH)
         self.assertEqual((len(self.wcalls), len(self.gcalls)), (2, 2))
-        self.assertEqual(self.wcalls[0], self.wcalls[1])  # 同一张卡、同一份提示，不加"换个说法"
+        self.assertEqual(self.wcalls[0], self.wcalls[1])  # 同一份指导，不加"换个说法"
 
     async def test_on_mode_second_fails_guard_keeps_first_not_draft(self):
         s = self.make([SAME, "编了一件事"], guards=[(False, "", True), (True, "编事", True)], cfg={"routine": "on"})

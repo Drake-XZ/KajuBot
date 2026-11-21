@@ -1,7 +1,7 @@
 """kaju_style 1.22.0：核对几遍都没过时不再干脆不说话（2026-11-15 兄长：一直不说话会以为哪里坏了）。
 
 - 先改错：核对用的模型只改被拦的那一处（“帮他”→“帮她”），改小了才算，再核对一次，过了就发它
-- 改错没成（改不了 / 改多了 / 还没过）：guard_fail=busy 时照卡说一句“这会儿在忙（日程里在做的事），等下再好好回”
+- 改错没成（改不了 / 改多了 / 还没过）：guard_fail=busy 时让回复器说一句“这会儿在忙（日程里在做的事），等下再好好回”
 - guard_fail=silent：只改错，不行还是不说；send_writer 照旧
 
     <venv>\\Scripts\\python.exe -I D:\\JiashuBot\\bot_setup\\tests\\test_style_guard_fail.py
@@ -22,18 +22,16 @@ from astrbot.api.event import AstrMessageEvent  # noqa: E402
 from astrbot.api.provider import LLMResponse  # noqa: E402
 from astrbot.api.star import Context  # noqa: E402
 from kaju_core import parts  # noqa: E402
-from kaju_core.senses import omni  # noqa: E402
-from kaju_core.voice import rewrite  # noqa: E402
+from kaju_core.voice import replyer, rewrite  # noqa: E402
 from kaju_style.main import KajuStyle  # noqa: E402
 
 DRAFT = "佳树读到上卷第2段啦，哥哥带妹妹回房间帮她补日记，最后两人房间搬到一起了～"
-GEM = json.dumps({"局面": "兄长大人问佳树小说读到哪了，轮到佳树回。",
-                  "要说到的": ["佳树读到上卷第2段", "哥哥带妹妹回房间帮她补日记", "最后两人房间搬到一起"]},
-                 ensure_ascii=False)
+PLAN = json.dumps({"回不回": "回", "局面": "兄长大人问她小说读到哪了",
+                   "要表达的": ["分享：读到上卷第2段", "分享：哥哥带妹妹回房间帮她补日记，最后两人房间搬到一起"]},
+                  ensure_ascii=False)
 BAD_ONCE = "佳树读到上卷第2段，哥哥带妹妹回房间帮他补日记，最后两人房间搬到一起"
 FIXED = "佳树读到上卷第2段，哥哥带妹妹回房间帮她补日记，最后两人房间搬到一起"
-V4 = {"enable": True, "card_format": "v4", "card_model": "kaju-writer-p4-8b-k", "retry": 1, "recard_after": 0,
-      "guard_provider_id": "gemini"}
+V4 = {"enable": True, "retry": 1, "guard_provider_id": "gemini", "replan": False, "action_judge": False}
 
 
 class _Prov:
@@ -72,19 +70,19 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         style = KajuStyle(ctx, {"rewrite": {**V4, **(cfg or {})}})
         self.writes, self.guards, self.bodies = list(writes), list(guards), []
 
-        async def fake_text(system, user, timeout=20, thinking="low"):
-            return GEM, 1
-        self.real_text, omni.text = omni.text, fake_text
+        real = replyer.reply
 
-        async def local_chat(system, user):
-            self.bodies.append(user)
-            return self.writes.pop(0)
+        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+            self.bodies.append(replyer.plan_text(plan))
+            return self.writes.pop(0), {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
+        replyer.reply = fake_reply
+        self.addCleanup(setattr, replyer, "reply", real)
 
         async def guard(said, draft, new, title="", ctx=None):
             return self.guards.pop(0)
 
-        style._local_chat, style._guard = local_chat, guard
-        style._mood_line = lambda: "心情：开心6 精神5 紧绷1 亲近5"
+        style._guard = guard
+        style._mood_words = lambda **kw: ""
 
         class Life:
             def doing_now(self):
@@ -94,7 +92,6 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         return style
 
     def tearDown(self):
-        omni.text = self.real_text
         parts.unregister("kaju_life_test", self.life)
 
     async def reply(self, style, group="", called=None):
@@ -103,7 +100,8 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
             ev.set_extra("_kaju_called", called)
         ev.set_extra("_ks_rw_ctx", ["兄长大人：小佳树读到哪了呀？"])
         ev.set_extra("_ks_rw_title", "兄长大人")
-        resp = LLMResponse(DRAFT)
+        ev.set_extra("_ks_brain", True)
+        resp = LLMResponse(PLAN)
         await style.rewrite_reply(ev, resp)
         return ev, resp.completion_text
 
@@ -125,15 +123,15 @@ class FlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.guards), guards_before - 2)  # 改多了的不再拿去核对
         self.assertEqual(out.replace("\n", ""), "兄长大人，佳树在上课呢，等下课再好好跟兄长大人说")
         self.assertTrue(ev.get_extra("kaju_style_busy"))
-        self.assertIn("佳树这会儿在忙（第三节数学课）", self.bodies[-1])  # 在忙什么取日程
-        self.assertIn("佳树等一下再好好回兄长大人刚才说的", self.bodies[-1])
+        self.assertIn("解释：这会儿在忙（第三节数学课）", self.bodies[-1])  # 在忙什么取日程
+        self.assertIn("答应：等一下再好好回兄长大人刚才说的", self.bodies[-1])
 
     async def test_repair_still_bad_then_busy_without_schedule(self):
         s = self.make([BAD_ONCE, BAD_ONCE, "佳树现在有点忙，等一下再回兄长大人哦"],
                       [self.BAD, self.BAD, (True, "还是不对", True)], repair_out=FIXED)
         ev, out = await self.reply(s)
         self.assertEqual(out.replace("\n", ""), "佳树现在有点忙，等一下再回兄长大人哦")
-        self.assertIn("佳树这会儿有点忙", self.bodies[-1])
+        self.assertIn("解释：这会儿有点忙", self.bodies[-1])
 
     async def test_cannot_repair_then_busy(self):
         s = self.make([BAD_ONCE, BAD_ONCE, "佳树有点忙，等下回兄长大人"], [self.BAD, self.BAD], repair_out="[无法修改]")

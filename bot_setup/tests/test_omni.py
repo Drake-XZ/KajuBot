@@ -208,7 +208,7 @@ async def main():
     json.dump({"enabled": False, "keys": [{"api_key": "sk-1", "base_url": "https://one"}]}, open(lst, "w"))
     os.utime(lst, (2, 2))
     expect("whole list switched off", omni.gemini_keys(), [])
-    # "format": "openai"（只认 OpenAI 格式的中转）：出卡、看图用它，看视频听歌跳过它
+    # "format": "openai"（只认 OpenAI 格式的中转）：看图用它，看视频听歌跳过它
     json.dump({"keys": [{"name": "o", "api_key": "sk-o", "base_url": "https://oa/v1", "model": "gemini-3-flash", "format": "openai"},
                         {"name": "n", "api_key": "sk-n", "base_url": "https://na", "model": ""}]}, open(lst, "w"))
     os.utime(lst, (3, 3))
@@ -221,8 +221,6 @@ async def main():
         sent.update(k=k["base_url"], messages=messages, extra=extra)
         return "好"
     real_oc, omni._openai_chat = omni._openai_chat, fake_chat
-    expect("openai text call", (omni._gemini_text(omni.gemini_keys()[0], "sys", "u", "low", 5), sent["messages"][0]["role"], sent["extra"]),
-           ("好", "system", {"reasoning_effort": "low"}))
     omni._gemini_look(omni.gemini_keys()[0], "image/png", b"\x89PNG", "看图", 5)
     expect("openai look call", sent["messages"][0]["content"][0]["image_url"]["url"].startswith("data:image/png;base64,"), True)
     omni._openai_chat = real_oc

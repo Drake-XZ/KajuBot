@@ -178,7 +178,7 @@ DOUYIN_NOTE = (
 )
 # 视频要下载/看一两分钟：先回一句（2026-11-01 兄长在群里发链接，她两分多钟一声不吭，像没理人）
 # 2026-11-08 先回的那一句不再从固定的几句里挑（兄长："嗯嗯能看"——没人问能不能看；固定句子每次都一样）：
-# 交给 kaju_style 的本地写手照一张小卡片写（要点：佳树先去看/听，看完再说），写手不在就不说。
+# 交给 kaju_style 的回复器照几条要点写（要点：佳树先去看/听，看完再说），写不成就不说。
 # 分享文字（抖音"0.76 复制打开抖音，看看【…】… https://… y@T.lc FUL:/"、B站"【标题】 https://b23.tv/…"）不算对方说的话
 SHARE_TEXT = re.compile(
     r"(?:\d+(?:\.\d+)?\s*)?复制(?:打开|此链接)[^\n]*?https?://\S+(?:[^\n]*?\S+:/)?|【[^】]*】|https?://\S+")
@@ -1643,17 +1643,14 @@ class KajuBasics(Browsing, BiliAccount, DouyinAccount, Owner, Star):
                 only_writer = bool(getattr(style, "writer_only", lambda: False)())
                 try:
                     polished = await style.polish(text, ctx, said=said)
-                    if not polished and only_writer:  # 只发写手的话（2026-11-13）：写手没写成就不发 DeepSeek 的原稿
-                        logger.info("kaju_basics: 写手没写成，这次不主动跟兄长说")
-                        return False, "写手没写成"
+                    if not polished and only_writer:  # 只发回复器的话（2026-11-13）：没写成就不发主模型的原稿
+                        logger.info("kaju_basics: 回复器没写成，这次不主动跟兄长说")
+                        return False, "回复器没写成"
                     text = polished or text
                 except Exception as e:  # noqa: BLE001
-                    if type(e).__name__ == "GeminiDown":  # 出卡的 Gemini 全挂了，不发 DeepSeek 的原稿，这次不主动说
-                        logger.warning(f"kaju_basics: Gemini 全挂了，这次不主动跟兄长说 {e}")
-                        return False, "Gemini 全挂了"
                     if only_writer:
-                        logger.info(f"kaju_basics: 写手没写成，这次不主动跟兄长说 {type(e).__name__}: {e}")
-                        return False, "写手没写成"
+                        logger.info(f"kaju_basics: 回复器没写成，这次不主动跟兄长说 {type(e).__name__}: {e}")
+                        return False, "回复器没写成"
                     logger.info(f"kaju_basics: 说话习惯没过成（用原稿） {type(e).__name__}: {e}")
             lines = [ln for ln in text.splitlines() if ln.strip()]
             for i, ln in enumerate(lines):

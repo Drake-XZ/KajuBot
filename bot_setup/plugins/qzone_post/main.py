@@ -745,14 +745,14 @@ class QzonePost(Star):
             await asyncio.sleep(60)
 
     async def _local_writer(self, draft: str) -> str:
-        """writer=local：交给 kaju_style 的重说层（card 模式就是要点卡 + 本地写手）。拿不到就用原稿。"""
+        """writer=local：交给 kaju_style（草稿整理成指导 → 回复器写 → 核对）。拿不到就用原稿。"""
         for meta in self.context.get_all_stars() or []:
             star = getattr(meta, "star_cls", None)
-            if star is not None and hasattr(star, "polish") and hasattr(star, "_new_wording"):
+            if star is not None and hasattr(star, "polish") and hasattr(star, "_plan_from_draft"):
                 try:
                     return (await star.polish(draft, [], "", kind="说说", split=False)).strip() or draft
                 except Exception as exc:  # noqa: BLE001
-                    logger.info(f"qzone_post: 本地写手没写成（用原稿） {type(exc).__name__}: {exc}")
+                    logger.info(f"qzone_post: 说话习惯插件没写成（用原稿） {type(exc).__name__}: {exc}")
         return draft
 
     async def run_nightly(self, publish: bool, now: float | None = None) -> dict:

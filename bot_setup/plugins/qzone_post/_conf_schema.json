@@ -135,7 +135,7 @@
           "deepseek",
           "local"
         ],
-        "hint": "local = 交给说话习惯插件的重说层（card 模式 = 要点卡 + 本地写手）；写出来过不了硬伤检查就用 DeepSeek 原稿。新写手盲选过了再开。"
+        "hint": "local = 交给说话习惯插件（草稿整理成大脑的指导 → 回复器用她的口吻写 → 核对）；写出来过不了硬伤检查就用 DeepSeek 原稿。"
       },
       "recent_topics": {
         "description": "选材时参考最近几条说说的话题",

@@ -1,7 +1,7 @@
 """kaju_style 的 AstrBot 外壳：只把 AstrBot 的钩子接到 kaju_core.voice.mind.StyleMind（逻辑和说明都在那边）。
 
 还在用的：聊天节奏（rhythm）、被纠正提醒（rebuttal）、聊作品说具体（concrete）、先回应别当解说员（respond）、
-深夜催睡（bedtime）、问之前先听懂（asks）、写手（rewrite：要点卡 → 本地写手照卡写 → DeepSeek 核对）。
+深夜催睡（bedtime）、问之前先听懂（asks）、写她的话（rewrite：大脑出指导 → 回复器写 → 核对）。
 2026-11-13 删掉了早就关着的几条（开头少用"诶"、开头别老"好的…"、说话要有变化、说大白话、句子说短、带称呼和语气词）
 和看草稿改写的旧"重说"模式。
 """
@@ -17,7 +17,7 @@ from kaju_core.voice.mind import StyleMind  # noqa: E402
 from kaju_astr import AstrBody, plugin_log  # noqa: E402
 
 
-@register(PLUGIN_NAME, "dsh", "佳树的说话习惯：一句一条不打句号、聊作品说具体、先回应别当解说员、被纠正先接住、深夜别老催睡、别问他刚说过的、要点卡+本地写手", "1.20.0")
+@register(PLUGIN_NAME, "dsh", "佳树的说话习惯：一句一条不打句号、聊作品说具体、先回应别当解说员、被纠正先接住、深夜别老催睡、别问他刚说过的、大脑出指导+回复器写", "1.30.0")
 class KajuStyle(StyleMind, Star):
     def __init__(self, context: Context, config: dict | None = None):
         Star.__init__(self, context)
@@ -63,14 +63,9 @@ class KajuStyle(StyleMind, Star):
         """存进历史的那份在回复钩子之前就写好了：也删掉，免得下一轮她以为自己问过。"""
         return await StyleMind.asks_history(self, event, run_context, response)
 
-    @filter.event_message_type(filter.EventMessageType.ALL, priority=-1)
-    async def rewrite_prewarm(self, event: AstrMessageEvent):
-        """私聊来消息或群里有人叫她：先让 Ollama 把写手加载上（只加载、不生成），回复写好时它已经热了。"""
-        return await StyleMind.rewrite_prewarm(self, event)
-
     @filter.on_llm_request(priority=-(2 ** 61))  # 别的插件都加完材料之后、draft_request_ref（记下请求）之前
     async def brain_request(self, event: AstrMessageEvent, req: ProviderRequest):
-        """rewrite.main_role = "brain"：主模型这一轮当大脑，人设里扮佳树说话的那段换成大脑的要求（brain.py）。"""
+        """主模型这一轮当大脑，人设里扮佳树说话的那段换成大脑的要求（brain.py）。"""
         return await StyleMind.brain_request(self, event, req)
 
     @filter.on_llm_request(priority=-(2 ** 62))  # 别的插件都改完之后（kaju_basics 最后挪动的是 -sys.maxsize，拿的是同一个对象）
@@ -80,17 +75,17 @@ class KajuStyle(StyleMind, Star):
 
     @filter.on_llm_request(priority=-81)
     async def rewrite_snapshot(self, event: AstrMessageEvent, req: ProviderRequest):
-        """记下这一轮的上下文（按训练时的格式：称呼：话），回复回来时给写手用。"""
+        """记下这一轮的上下文（称呼：话）和回复器看的前文，回复回来时用。"""
         return await StyleMind.rewrite_snapshot(self, event, req)
 
     @filter.on_llm_response(priority=5)
     async def rewrite_reply(self, event: AstrMessageEvent, resp: LLMResponse):
-        """外面这层只负责记录（records.py）：照卡写本身在 _rewrite_reply。"""
+        """外面这层只负责记录（records.py）：照指导写本身在 _rewrite_reply。"""
         return await StyleMind.rewrite_reply(self, event, resp)
 
     @filter.on_agent_done()
     async def rewrite_history(self, event: AstrMessageEvent, run_context, response: LLMResponse):
-        """历史里存的是草稿（回复钩子之前就写好了）：换成真正发出去的。"""
+        """历史里存的是大脑的指导（回复钩子之前就写好了）：换成真正发出去的。"""
         return await StyleMind.rewrite_history(self, event, run_context, response)
 
     @filter.on_llm_response()
@@ -99,7 +94,7 @@ class KajuStyle(StyleMind, Star):
 
     @filter.on_decorating_result(priority=20)
     async def hush_model_error(self, event: AstrMessageEvent):
-        """主模型全挂时 AstrBot 自己发的报错 / 固定句子不发，DeepSeek 告诉兄长（只发写手的话时）。"""
+        """主模型全挂时 AstrBot 自己发的报错 / 固定句子不发，DeepSeek 告诉兄长（只发回复器的话时）。"""
         return await StyleMind.hush_model_error(self, event)
 
     @filter.on_decorating_result(priority=10)

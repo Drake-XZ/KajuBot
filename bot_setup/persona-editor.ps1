@@ -729,7 +729,7 @@ function Show-PersonaEditor {
     $pe.SecList.BorderStyle = 'FixedSingle'
     $pe.SecList.BackColor = $Pal.DropFill
     $pe.SecList.HorizontalScrollbar = $false
-    $l2 = New-Label '她每次回复前都会看一遍。现在只放两句身份 + 几条做事规则；她是谁的细节放「关于自己」，口吻交给本地写手。' 290 12 640 22 (Fnt 9) $Pal.Muted
+    $l2 = New-Label '她每次回复前都会看一遍。现在只放两句身份 + 几条做事规则；她是谁的细节放「关于自己」，口吻交给回复器。' 290 12 640 22 (Fnt 9) $Pal.Muted
     $l2.AutoEllipsis = $true
     $pe.Prompt = New-Object System.Windows.Forms.TextBox
     $pe.Prompt.Location = Pt 290 38
@@ -782,13 +782,13 @@ function Show-PersonaEditor {
     $pe.FactText.Size = Sz 370 150
     $pe.FactText.Multiline = $true; $pe.FactText.AcceptsReturn = $false; $pe.FactText.ScrollBars = 'Vertical'
     $pe.FactText.Font = Fnt 10.5
-    $f4 = New-Label ("写她自己会这样想的事实，别写口吻或说话规则（那些交给本地写手）。`r`n" +
+    $f4 = New-Label ("写她自己会这样想的事实，别写口吻或说话规则（那些交给回复器）。`r`n" +
                      "保存后直接写进 kaju_life 的 self_facts.json，下一轮就用新的；新句子的向量第一次用到时自动算。") 560 290 370 120 (Fnt 9) $Pal.Muted 'TopLeft'
     $pg.Controls.AddRange(@($f1, $pe.FactList, $pe.BtnFactAdd, $pe.BtnFactDel, $pe.BtnFactUp, $pe.BtnFactDown, $pe.FactInfo, $f2, $pe.FactKind, $f3, $pe.FactText, $f4))
 
     # ----- 示例对话 -----
     $pg = $pe.Pages['dialogs']
-    $d1 = New-Label '放在每次聊天最前面的示范对话。11-07 起有意清空：口吻交给本地写手（照卡写），这里只会影响 DeepSeek 的草稿，一般不用加。' 20 12 910 22 (Fnt 9) $Pal.Muted
+    $d1 = New-Label '放在每次聊天最前面的示范对话。11-07 起有意清空：口吻交给回复器，主模型现在只当大脑出指导，一般不用加。' 20 12 910 22 (Fnt 9) $Pal.Muted
     $d1.AutoEllipsis = $true
     $pe.DlgList = New-Object System.Windows.Forms.ListBox
     $pe.DlgList.Location = Pt 20 40

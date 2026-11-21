@@ -1,4 +1,5 @@
-"""kaju_style 1.15.0：照卡写被核对拦下（或写出来不像回复）就拿同一张卡再写一次；核对超时、回晚了不重写。
+"""kaju_style 1.15.0：照指导写被核对拦下（或写出来不像回复）就拿同一份指导再写一次；核对超时、回晚了不重写。
+（11-21 起没有要点卡：草稿先整理成指导，回复器照指导写。）
 
     <venv>\\Scripts\\python.exe -I D:\\JiashuBot\\bot_setup\\tests\\test_style_retry.py
 """
@@ -17,27 +18,36 @@ os.environ["STUB_DATA"] = tempfile.mkdtemp()
 from astrbot.api.event import AstrMessageEvent  # noqa: E402
 from astrbot.api.provider import LLMResponse  # noqa: E402
 from astrbot.api.star import Context  # noqa: E402
+from kaju_core.voice import replyer  # noqa: E402
 from kaju_style.main import KajuStyle  # noqa: E402
 
 DRAFT = "兄长大人晚安呀 / 佳树也爱兄长大人"
-CARD = "场合：私聊\n对象：兄长大人\n情绪：开心\n态度：撒娇\n要点：佳树回晚安；佳树也爱兄长\n问：无"
+PLAN = '{"局面": "兄长大人道晚安、说爱她", "要表达的": ["反应：回晚安", "反应：也爱他"]}'
 
 
 class RetryTests(unittest.IsolatedAsyncioTestCase):
     def make(self, writes, guards, cfg=None):
-        # writer_only 关着：查的是“写手两遍都不行就发原稿”那条退路（11-18 删第一版卡前这是默认）
+        # writer_only 关着：查的是“两遍都不行就发原稿”那条退路
         style = KajuStyle(Context(), {"rewrite": {"enable": True, "writer_only": False, **(cfg or {})}})
         self.writes, self.guards, self.wcalls, self.gcalls = list(writes), list(guards), [], []
+        real = replyer.reply
 
-        async def extract(ctx, draft, kind, title):
-            return CARD
-
-        async def local_chat(system, user):
-            self.wcalls.append(user)
+        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+            self.wcalls.append(replyer.plan_text(plan))
             w = self.writes.pop(0)
             if isinstance(w, Exception):
                 raise w
-            return w
+            return w, {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
+        replyer.reply = fake_reply
+        self.addCleanup(setattr, replyer, "reply", real)
+
+        async def model_id(model="", who=""):
+            return model or "main"
+
+        async def generate(pid, prompt, system="", timeout=None):
+            return PLAN  # 草稿整理成的指导
+        style.body.model_id, style.body.generate = model_id, generate
+        style._mood_words = lambda **kw: ""
 
         async def guard(said, draft, new, title="", ctx=None):
             self.gcalls.append(new)
@@ -46,7 +56,7 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
                 raise g
             return g
 
-        style._extract_card, style._local_chat, style._guard = extract, local_chat, guard
+        style._guard = guard
         return style
 
     async def reply(self, style, arrived=None):
@@ -65,7 +75,7 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
         out = await self.reply(s)
         self.assertEqual(out, "晚安兄长大人，佳树也爱兄长大人")
         self.assertEqual((len(self.wcalls), len(self.gcalls)), (2, 2))
-        self.assertEqual(self.wcalls[0], self.wcalls[1])  # 同一张卡、同一份提示再写一遍
+        self.assertEqual(self.wcalls[0], self.wcalls[1])  # 同一份指导再写一遍
 
     async def test_both_rejected_keeps_draft(self):
         s = self.make(["编了一件事", "又编了一件事"], [(True, "编事", True), (True, "编事", True)])

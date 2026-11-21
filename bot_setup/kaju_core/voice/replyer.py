@@ -7,8 +7,8 @@
 例子库 kaju_data\\self\\kaju_style\\replyer_bank.json：[{situation, line, src, vec}]（voice_train\\scripts\\build_replyer_bank.py 造）；
 按“这一轮对方的话 + 要接住的”用本机 bge-m3 挑最近的几句，原作的最多 2 句；向量服务不在就不放例子。
 11-20 晚起再加上 kaju_learn 每晚从她真实聊天里挑的效果好的话（replyer_learned.json，src = "live"，一轮最多 rewrite.replyer_live_max 句）。
-模型在 kaju_data\\accounts\\text_models.json，按 rewrite.replyer_models 的名字前缀从前往后试，一个不行换下一个；都不行返回 ''（mind.py 退回本地写手）。
-开关 rewrite.replyer = "api"（默认 "local" = 照旧本地写手），只在大脑模式（main_role = "brain"）下用。
+模型在 kaju_data\\accounts\\text_models.json，按 rewrite.replyer_models 的名字前缀从前往后试，一个不行换下一个；都不行返回 ''（这次不说）。
+她说的话只由回复器写（11-21 起本地写手和第四版要点卡都删了）：大脑的指导、插件给的要点、主动说的话整理成的指导，都是同一种 plan。
 """
 
 from __future__ import annotations
@@ -254,25 +254,43 @@ async def reply(kind: str, title: str, ctx: list[str], plan: dict, cfg: dict, sa
     return "", info
 
 
-def plan_from_card(card_text: str) -> dict:
-    """不是大脑那一轮的要点卡（场合 / 对象 / 局面 / 要说到的 / 背景 / 心情，card.render_v4、brain.card_of 拼的）→ 回复器的指导。
-    11-18 晚兄长：“我不想再用本地写手了”——插件让她说话（say_from_card）、草稿摘卡这些也交给回复器写。"""
-    p: dict = {"局面": "", "要表达的": []}
-    for line in (card_text or "").splitlines():
-        k, _, v = line.partition("：")
-        v = v.strip()
-        if k == "局面":
-            jm, _, catch = v.partition("。要接住的：")
-            p["局面"], p["要接住的"] = jm.strip(), catch.strip()
-        elif k == "要说到的" and v and v != "无":
-            p["要表达的"] = [x.strip() for x in v.split("；") if x.strip()]
-        elif k == "背景" and v:
-            p["背景"] = [x.strip() for x in v.split("；") if x.strip()]
-        elif k == "心情" and v:
-            p["情绪"] = v
-    return {k: v for k, v in p.items() if v or k in ("局面", "要表达的")}
+# 回复器写出来的话发之前看一眼（原来第四版卡那边的 sane_v4）：空的、漏出指导的格式、写出参照里没有的繁体字、卡死打转，
+# 都不算写好（交给“再写一次”）。只判这一遍要不要，不改她的字；不按字数卡长短（兄长：不要强行限制她的字数）。
+LEAK = re.compile(r"^(场合|对象|局面|要接住的|要表达的|对方需要|背景|情绪|心情底色|指导|聊天)：", re.M)
+
+# 只在繁体里出现的常用字（简体不用）。写出原稿 / 指导里没有的繁体字（2026-11-09 "今天也要上課"）→ 这一遍不算写好
+TRAD = set(
+    "這個們說話時會來對還沒為麼樣嗎學開關點錢見讓給過現間問題聽覺東車長門電腦書寫買賣從後裡帶頭謝愛歡樂媽爺歲氣體實應當經"
+    "網線號機發認識記讀練習鐘夢雙邊遠進選運達課週準備場決參與壓壞歷總變權風飛馬魚鳥龍麵飯飲館憶聲臉帳團園圖幾兩亂產價優傳"
+    "傷僅兒內劃劇動務勝勢區協單卻員喚嚇嚴國圍圓執堅報塊夠夥奪奮嬌孫寧寶寵審寬導將專尋屬島幣幫幹廣廠廢廳彈彎徑徹戀戰戲戶"
+    "擁擇擊擔據擴擺攜敗敵數斷晝曉暫曆朧條棄楊業極構槍標檢歐歸殺毀漢潔濟灣無熱爭爾牆獎獨獲環畫療盡盤眾睏礙禮禱稱種穩窮"
+    "競筆節範簡糧紀約紅級細終組結絕絲綠維緊練縣繼續纏罰羅職聯聖肅腳興舉舊艱藝蘋蘭處蟲術衛裝補複視親觀計訂討訓託訪設許訴"
+    "診詞試詩該詳語誤請諸調談論諾謎護豐貓貝負財貧貨販貴費貼賀資賓賞質購賽趕趙跡踐蹤軌軍軟較載輕輛輩輪輸辦農迴連遊違遞適遺"
+    "郵鄉醫釋針鈕鉛銀銷鋼錄錯鍵鍋鏡鐵閃閉閒閱陽階際陳陸隊隨險隱隻雖雜雞離難電霧靈靜韓頁項順須預頓額顏願類顯餅養餓駕騎"
+    "驗驚鬆鬧鮮鴨鹽麥黃黨齊齒")
 
 
-def kind_of(card_text: str) -> str:
-    m = re.search(r"^场合：(.*)$", card_text or "", re.M)
-    return m.group(1).strip() if m else ""
+def trad_chars(new: str, ref: str = "") -> str:
+    """写出来、ref（原稿 / 指导）里没有的繁体字。"""
+    return "".join(sorted({ch for ch in new or "" if ch in TRAD and ch not in (ref or "")}))
+
+
+def loops(text: str, n: int = 6, times: int = 3) -> bool:
+    """卡死在打转：同一段（n 字以上）出现 times 次以上，或同一行（n 字以上）出现两次。"""
+    t = re.sub(r"\s", "", text or "")
+    lines = [x.strip() for x in (text or "").split("\n") if len(x.strip()) >= n]
+    if len(lines) != len(set(lines)):
+        return True
+    seen: dict[str, int] = {}
+    for i in range(0, max(0, len(t) - n + 1)):
+        g = t[i:i + n]
+        seen[g] = seen.get(g, 0) + 1
+        if seen[g] >= times:
+            return True
+    return False
+
+
+def sane(new: str, ref: str = "") -> bool:
+    if not (new or "").strip() or LEAK.search(new) or trad_chars(new, ref):
+        return False
+    return not loops(new)

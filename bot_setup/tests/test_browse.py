@@ -937,18 +937,21 @@ async def polish_tests():
     st = cls(Context(), {"rewrite": {"enable": False}})
     out = await st.polish("兄长大人我刚刷到一只小猫第一次见到雪，它踩来踩去的好可爱。")
     expect("polish: rewrite off → rhythm only, no 句号", (out.endswith("。"), "小猫" in out), (False, True))
-    # writer_only 关着：查“核对不过就用原稿”那条退路（11-18 删第一版卡前这是默认）
+    # writer_only 关着：查“核对不过就用原稿”那条退路
     st = cls(Context(), {"rewrite": {"enable": True, "guard": True, "retry": 0, "writer_only": False}})
     seen = {}
 
-    async def local(ctx, draft, kind, title, **k):
+    async def plan_of(ctx, draft, kind, title):
         seen["ctx"] = ctx
-        return "兄长大人！我刷到一只小猫第一次见到雪", "卡"
+        return {"局面": "她刚刷到一个视频，想分享给兄长大人", "要表达的": ["分享：小猫第一次见到雪"]}
+
+    async def write(ctx, plan, kind, title, ref=""):
+        return "兄长大人！我刷到一只小猫第一次见到雪"
 
     async def guard(said, draft, new, title="", ctx=None):
         seen["said"] = said
         return False, "", True
-    st._new_wording, st._guard = local, guard
+    st._plan_from_draft, st._write, st._guard = plan_of, write, guard
     out = await st.polish("兄长大人，我刷到了一只小猫第一次见到雪", ["兄长大人：嗯"], said="刷到视频")
     expect("polish: rewrite + guard", ("小猫" in out, seen["ctx"], seen["said"]), (True, ["兄长大人：嗯"], "刷到视频"))
 

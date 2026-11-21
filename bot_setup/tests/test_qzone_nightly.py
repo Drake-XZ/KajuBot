@@ -294,12 +294,12 @@ async def flow_tests():
     p2, _, _ = make_plugin({"nightly": {"mode": "off"}})
     expect("due: off", p2._due(at + 10), False)
 
-    # 本地写手：写出来有硬伤就用 DeepSeek 原稿
+    # 交给说话习惯插件写（writer=local）：写出来有硬伤就用 DeepSeek 原稿
     p, llm, pub = make_plugin({"nightly": {"writer": "local"}})
 
     class Style:
         def __init__(self, out): self.out, self.calls = out, []
-        async def _new_wording(self, *a): pass
+        async def _plan_from_draft(self, *a): pass
         async def polish(self, draft, ctx, said, kind="", split=True):
             self.calls.append((draft, kind, split))
             return self.out

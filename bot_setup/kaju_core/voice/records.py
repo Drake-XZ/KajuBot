@@ -1,12 +1,12 @@
 """线上重说记录（2026-11-07，借鉴 MaiBot 的"回复效果记录"）：每一次重说都原样记下来。
 
-为什么：v4 写手训练时的要点卡是从兄长大人满意的答案里抽的，线上的卡却是从 DeepSeek 草稿里抽的——训练和线上看到的
-不是一回事。MaiBot 的经验也是"线上输入必须和训练分布对齐"。把线上真实的输入（上下文、草稿、要点卡、写手的
-完整提示）和输出（写手写的、核对结论、最后发出去的）都记下来，以后出盲选题、让兄长大人改写、攒训练数据，
+为什么（2026-11-07 起；那时是本地写手照要点卡写，11-21 删了）：训练和线上看到的东西
+要是一回事。MaiBot 的经验也是"线上输入必须和训练分布对齐"。把线上真实的输入（上下文、大脑的指导、回复器的
+提示）和输出（回复器写的、核对结论、最后发出去的）都记下来，以后出盲选题、让兄长大人改写、攒训练数据，
 都用这份和线上一模一样的材料。
 
 - 记在 kaju_data\\self\\kaju_style\\rewrites\\日期.jsonl，一次重说一行；超过 rewrite.record_days（60）天的删掉。
-- 不改重说的任何行为：只在外面包一层，把写手、抽卡、核对的输入输出顺手记下；记录本身出错只打日志。
+- 不改重说的任何行为：只在外面包一层，把核对的输入输出顺手记下（回复器、大脑、再想一遍由 mind.py 自己 note）；记录本身出错只打日志。
 - 主回复（rewrite_reply 外面那层调用 begin/end）和插件主动发的话（polish）都记。
 - 2026-11-11 起每条多记一栏 mood：开始重说那一刻 kaju_heart 的原始读数（HeartMind.mood_snapshot）。
 - 2026-11-13 起主回复多记“草稿是照什么写的”（兄长：加日志）：主模型这一轮收到的完整输入（系统提示、本轮消息、历史、
@@ -34,13 +34,14 @@ def _sha(text: str) -> str:
 
 
 def outcome(rec: dict) -> str:
-    """一次重说的结局：skipped（没走写手）/ writer_error / unusable（写出来不像回复或一样）/
+    """一次重说的结局：skipped（没走回复器）/ writer_error（回复器一句没写成）/ unusable（写出来不像回复或一样）/
     guard_rejected / guard_error / used（换上了）。"""
     if rec.get("used"):
         return "used"
-    if not rec.get("writer"):
+    tries = rec.get("replyer") or []
+    if not tries:
         return "skipped"
-    if any(w.get("error") for w in rec["writer"]) and not any(w.get("out") for w in rec["writer"]):
+    if not any(w.get("text") for w in tries) and any(w.get("errors") for w in tries):
         return "writer_error"
     g = rec.get("guard") or []
     if g and g[-1].get("error"):
@@ -88,9 +89,9 @@ class Recorder:
                         rec["_draft_in"] = snap
             rec.update(extra)
             cfg = self._cfg()
-            rec["config"] = {k: cfg.get(k) for k in ("card_model", "main_role", "replyer", "guard", "guard_provider_id")
+            rec["config"] = {k: cfg.get(k) for k in ("replyer_models", "guard", "guard_provider_id")
                              if cfg.get(k) is not None}
-            rec["writer"], rec["guard"] = [], []
+            rec["guard"] = []
             mood = self._mood()
             if mood is not None:
                 rec["mood"] = mood
@@ -187,9 +188,8 @@ class Recorder:
 
     # ---------------------------------------------------------------- wrap helpers
     def install(self) -> None:
-        """把写手 / 抽卡 / 核对 / polish 包一层（只包存在的）；不改它们的返回值和异常。"""
+        """把核对 / polish 包一层（只包存在的）；不改它们的返回值和异常。"""
         st = self.star
-        cfg = self._cfg
 
         def wrap(name, before, after):
             fn = getattr(st, name, None)
@@ -212,15 +212,7 @@ class Recorder:
             setattr(inner, "_kaju_rec", True)
             setattr(st, name, inner)
 
-        # 所有本地写手调用都走 _local_chat，记完整提示
-        wrap("_local_chat", lambda system, user: {
-            "model": st._rw_model() if hasattr(st, "_rw_model") else cfg().get("card_model"),
-            "system_sha": _sha(system), "user": user}, "writer")
-        wrap("_extract_card", lambda ctx, draft, kind, title, **k: {"kind": kind, "title": title, **k}, "card")
         wrap("_guard", lambda said, draft, new, title="", ctx=None, **k: {"new": new}, "guard")
-        # 带着核对的问题重出的卡（card 为空 = 卡没错 / 没重出成，接着用原卡）
-        wrap("_recheck_card", lambda ctx, draft, kind, title, card_text, new, why, felt=False: {
-            "kind": kind, "title": title, "recheck": why}, "card")
 
         fn = getattr(st, "polish", None)
         if fn is not None and not getattr(fn, "_kaju_rec", False):
@@ -233,7 +225,7 @@ class Recorder:
                     out = await fn(draft, ctx, said, *a, **k)
                     return out
                 finally:
-                    used = bool(rec) and any(w.get("out") for w in rec.get("writer") or []) and \
+                    used = bool(rec) and any(w.get("text") for w in rec.get("replyer") or []) and \
                         not (rec.get("guard") and rec["guard"][-1].get("bad"))
                     self.end(rec, out, used=used and bool(out))
             setattr(polish, "_kaju_rec", True)
@@ -241,11 +233,7 @@ class Recorder:
 
     @staticmethod
     def _result(after: str, info: dict, out) -> dict:
-        if after == "writer":
-            info["out"] = out if isinstance(out, str) else str(out)
-        elif after == "card":
-            info["card"] = out if isinstance(out, str) else str(out)
-        elif after == "guard":
+        if after == "guard":
             out = tuple(out) if isinstance(out, (tuple, list)) else (out,)
             info["bad"] = bool(out[0]) if out else None
             info["why"] = str(out[1]) if len(out) > 1 else ""

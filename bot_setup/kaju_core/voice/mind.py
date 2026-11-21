@@ -1,4 +1,4 @@
-"""佳树的说话习惯：几条管"怎么说话"的小规则 + 写手（要点卡 → 本地写手照卡写）。
+"""佳树的说话习惯：几条管"怎么说话"的小规则 + 写她的话（大脑的指导 → 回复器）。
 
 - 聊天节奏（rhythm）：按句号等标点分行，去掉句尾句号，默认不在逗号处拆句；可配置拆分长句。
   发送前和存进历史前各处理一次。
@@ -6,10 +6,11 @@
   提醒放在所有提示的最后（离她作答最近）。
 - 说具体、说连贯（concrete，1.6.0）：聊一部作品的时候（memory_weight 给了珍藏的内容、刚读了文件/看了视频、或者在问一部作品的看法），
   提醒"用具体的情节、人物、原话说看法，句和句接得上"，这一轮不在逗号处拆消息。
-- 写手（rewrite 这一节配置）：主模型写草稿（或 main_role=brain 时只出指导）→ Gemini 整理成第四版要点卡
-  （场合/对象/局面/要说到的 + 心情行）→ 回复器 / 本地写手照卡写 → 核对（编了事 / 丢了要紧信息 / 叫错人就再写）；
-  只发写手写的话（writer_only）。私聊来消息或群里有人叫她时先把写手加载上（预热）。
-  2026-11-18 删了第一版卡（card_format=v1，DeepSeek 抽旧格式卡配 4B 的 r003）和“规划器出卡”（card_source=planner）。
+- 写她的话（rewrite 这一节配置）：主模型当大脑，只出 JSON 指导（brain.py）→ 回复器（replyer.py，API 大模型）用她的口吻写
+  → 核对（编了事 / 丢了要紧信息 / 叫错人就再写）；只发回复器写的话（writer_only）。
+  大脑没给出 JSON：同一份材料再问它一遍；还不行，私聊说一句在忙，群里不说。
+  插件主动说的话（polish）先把草稿整理成同样格式的指导；插件给要点（say_from_card）直接拼成指导。
+  2026-11-21 兄长：第四版要点卡（Gemini 从草稿摘卡）和本地写手整条删掉，来龙去脉见 git 历史。
 - 2026-11-13 删掉了早就关着的几条：开头少用"诶"、开头别老"好的…"、说话要有变化、说大白话、句子说短、带称呼和语气词，
   还有看草稿改写的旧"重说"模式（kaju-rewriter）。兄长的规矩：说法交给模型和训练数据，不靠提示词和正则改她的话。
 - 先回应，别当解说员（respond）：对方在抱怨发泄时提醒先哄一句、站到 TA 那边，原因办法放后面；
@@ -33,7 +34,7 @@ import zoneinfo
 from collections import defaultdict, deque
 from kaju_core.slots import slot_model  # noqa: E402  每项工作一格（11-18）
 from kaju_core import parts, paths  # noqa: E402
-from kaju_core.voice import asks, brain, card, concrete, emoji, longctx, replyer, rewrite, routine  # noqa: E402
+from kaju_core.voice import asks, brain, concrete, emoji, longctx, replyer, rewrite, routine  # noqa: E402
 from kaju_core.voice.respond import build_note as respond_note  # noqa: E402
 from kaju_core.voice.rhythm import NOTE as RHYTHM_NOTE  # noqa: E402
 from kaju_core.voice.rhythm import restyle  # noqa: E402
@@ -42,14 +43,9 @@ from kaju_core.voice import records  # noqa: E402
 from kaju_core.voice.rebuttal import build_note as rebuttal_note  # noqa: E402
 from kaju_core.voice.rebuttal import is_rebuttal, quoted_own  # noqa: E402
 
-# 这一轮写手看的长前文（rewrite.long_ctx 开着时，重说那一轮里设上；_write_from_card 有它就用它，没有就用短的）。
-# 用 ContextVar 不用 self：几个人同时说话时各轮互不串（2026-11-17 第 7 轮：写手多看聊天）。
-_WRITER_CTX: contextvars.ContextVar = contextvars.ContextVar("kaju_writer_ctx", default=None)
-# 回复器看的前文（rewrite.replyer = api 时，rewrite_snapshot 里按 replyer_ctx_group / replyer_ctx_private 取；没有就用写手那份）
+# 回复器看的前文（rewrite_snapshot 里按 replyer_ctx_group / replyer_ctx_private 取；没有就用短的那份最后 10 行）。
+# 用 ContextVar 不用 self：几个人同时说话时各轮互不串。
 _REPLYER_CTX: contextvars.ContextVar = contextvars.ContextVar("kaju_replyer_ctx", default=None)
-# 主模型当大脑时（rewrite.main_role = "brain"）这一轮的指导 {"brain": …}：回复器要用、重出卡时知道不能再问。一样用 ContextVar，各轮不串。
-# （11-18 整理：删了“规划器出卡”B 那条路和第一版卡 v1，线上只剩第四版卡这一种）
-_PLAN: contextvars.ContextVar = contextvars.ContextVar("kaju_plan", default=None)
 # 这一轮群聊怎么来的（brain.how_came："插话" / "接着聊" / ""），给回复器（11-18 晚）
 _HOW: contextvars.ContextVar = contextvars.ContextVar("kaju_how", default="")
 
@@ -62,27 +58,12 @@ NAG_WORDS = re.compile(r"早点睡|早睡|快睡|去睡|睡觉|睡吧|该睡|熬
 
 USER_SLEEPY = re.compile(r"睡|困|晚安|熬夜|失眠|累")
 
-# Gemini 全挂了时让 DeepSeek 写的通知（2026-11-13 兄长：“由 DeepSeek 用佳树的 QQ、抖音给我发消息告知”）。
-# 这是给兄长的故障通知，不是她平时说话；平时的话只由写手写。
-GEMINI_DOWN_SYSTEM = "你是温水佳树（《败犬女主太多了！》），兄长大人的妹妹，这会儿在给兄长大人发私聊消息。"
-GEMINI_DOWN_PROMPT = ("你这边负责想要说什么的 Gemini 接口刚才没答上来：{what}"
-                      "在它恢复之前，你在群里不说话、私聊也没法回。用一两句话照实告诉兄长大人这件事（别说成别的情况），"
-                      "请他看一下 Gemini 的 key。只输出要发的话本身。")
-
-
-def down_summary(why: str, n_keys: int) -> str:
-    """GeminiDown 的原因（“… 1:TimeoutError 2:HTTPError …”）→ 给 DeepSeek 的一句实情（不带地址和 key）。
-    2026-11-14：原来一律说“N 个 key 都连不上”，其实常常是有的太慢、有的报错，或者根本是主模型那一路没答上来。"""
-    import re as _re
-    kinds = _re.findall(r"(?<![\w.])\d+:([A-Za-z_]+)", why or "")
-    if not kinds:
-        if why == "main":
-            return "写回复的主模型和它的几个后备都没答上来（多半是中转站太慢或在报错）。"
-        return f"{n_keys or '几'}个 Gemini 的 key 都没答上来。"
-    slow = sum(1 for k in kinds if "Timeout" in k)
-    bad = len(kinds) - slow
-    parts = ([f"{slow}个回得太慢、等不及" ] if slow else []) + ([f"{bad}个报错或连不上"] if bad else [])
-    return f"{len(kinds)}个 Gemini 的 key 都试了：" + "，".join(parts) + "。"
+# 主模型连后备全挂了时让 DeepSeek 写的通知（2026-11-13 兄长：“由 DeepSeek 用佳树的 QQ、抖音给我发消息告知”）。
+# 这是给兄长的故障通知，不是她平时说话；平时的话只由回复器写。（11-21 起只剩主模型这一种：出卡的 Gemini 那条删了）
+DOWN_SYSTEM = "你是温水佳树（《败犬女主太多了！》），兄长大人的妹妹，这会儿在给兄长大人发私聊消息。"
+DOWN_PROMPT = ("你这边写回复用的模型刚才没答上来：主模型和它的几个后备都没答上来（多半是中转站太慢或在报错）。"
+               "在它恢复之前，你在群里不说话、私聊也没法回。用一两句话照实告诉兄长大人这件事（别说成别的情况），"
+               "请他看一下模型的 key 和中转站。只输出要发的话本身。")
 # 主模型（连后备）全失败时 AstrBot 自己拼的报错（tool_loop_agent_runner / astr_agent_run_util）
 MODEL_ERROR = re.compile(r"^(LLM 响应错误|All chat models|All available chat models|Error occurred during AI execution|"
                          r"No messages remain for the LLM)")
@@ -101,9 +82,7 @@ class StyleMind:
         self._replies: dict[str, deque] = defaultdict(lambda: deque(maxlen=8))
         # 会话 -> 最近被纠正的时间
         self._rebutted: dict[str, deque] = defaultdict(lambda: deque(maxlen=10))
-        self._rw_warm = 0.0  # 上次预热写手的时间
-        self._gem_warm = 0.0  # 上次叫醒出卡用的 Gemini 的时间
-        self._gd_told = 0.0  # 上次告诉兄长 Gemini 全挂了的时间
+        self._gd_told = 0.0  # 上次告诉兄长主模型全挂了的时间
 
         folder = paths.self_dir(PLUGIN_NAME)
         os.makedirs(folder, exist_ok=True)
@@ -307,16 +286,11 @@ class StyleMind:
             self.log.info(f"kaju_style: 被纠正提醒 {event.unified_msg_origin} -> {note[:80]!r}")
 
     # ------------------------------------------------------------ 问之前先听懂（asks.py）
-    # ------------------------------------------------------------ 主模型当大脑（rewrite.main_role，2026-11-17 兄长定）
-    def _brain_on(self) -> bool:
-        """rewrite.main_role = "brain"：主模型不扮佳树写草稿，只当规划器（大脑）出标签式的指导（brain.py），
-        说法全交给写手。默认 "draft"（原来那样）。只在写手开着时有用。"""
-        return str(self._sec("rewrite").get("main_role", "draft")) == "brain"
-
+    # ------------------------------------------------------------ 主模型当大脑（2026-11-17 兄长定；11-21 起只有这一种）
     async def brain_request(self, event: Turn, req: Request):
         """别的插件都加完材料之后：把人设里扮佳树说话的那一段换成大脑的要求（brain.swap_persona），这一轮记上 _ks_brain。
-        这一轮不重说（私聊里写手没开、插件自己发起的请求）就不换。"""
-        if not self._brain_on() or not self._rewrite_on(event):
+        这一轮不重说（rewrite 关着、插件自己发起的请求）就不换。"""
+        if not self._rewrite_on(event):
             return
         try:
             rcfg = self._sec("rewrite")
@@ -346,9 +320,9 @@ class StyleMind:
             except Exception:  # noqa: BLE001
                 pass
             event.set_extra("_ks_brain", True)
-            event.set_extra("_ks_brain_req", req)  # 想的时候群里又来了消息就拿它重想一遍（_replan）
-        except Exception as e:  # noqa: BLE001  换不成就照原来写草稿
-            self.log.warning(f"kaju_style: 换成大脑的提示没成（照原来写草稿） {type(e).__name__}: {e}")
+            event.set_extra("_ks_brain_req", req)  # 重想（_replan）、没给出 JSON 再问一遍（_rethink）都拿它
+        except Exception as e:  # noqa: BLE001  换不成：主模型这一轮写的是草稿，回来时整理成指导（_plan_from_draft）
+            self.log.warning(f"kaju_style: 换成大脑的提示没成（回来的草稿再整理成指导） {type(e).__name__}: {e}")
 
     def _asks_on(self, event: Turn) -> bool:
         if event.get_extra("_ks_brain"):  # 大脑出的是 JSON 指导，不是她要说的话：问句把关不管
@@ -441,36 +415,6 @@ class StyleMind:
             return False
         return bool(cfg.get("group", True)) if event.get_group_id() else bool(cfg.get("private", True))
 
-    def _local_writer_on(self) -> bool:
-        """rewrite.local_writer（默认开）：关了就不再用本机 Ollama 的写手（11-18 晚兄长：“我不想再用本地写手了”），
-        所有要写她的话的地方都交给 API 回复器（rewrite.replyer = api），回复器没写成就这次不说；也不再预热写手。"""
-        return bool(self._sec("rewrite").get("local_writer", True))
-
-    async def rewrite_prewarm(self, event: Turn):
-        """私聊来消息或群里有人叫她：先让 Ollama 把写手加载上（只加载、不生成），回复写好时它已经热了。"""
-        if not self._rewrite_on(event) or (event.get_group_id() and not event.is_at_or_wake_command):
-            return
-        self._warm_gemini()
-        if not self._local_writer_on():
-            return
-        if time.time() - self._rw_warm < 60:
-            return
-        self._rw_warm = time.time()
-        cfg = self._sec("rewrite")
-        base = str(cfg.get("base_url", "http://127.0.0.1:11435/v1")).rstrip("/").removesuffix("/v1")
-
-        async def warm():
-            import aiohttp
-
-            try:
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
-                    async with s.post(base + "/api/generate", json={"model": self._rw_model()}) as r:
-                        await r.read()
-            except Exception:  # noqa: BLE001 -- best effort; the real request just loads it itself
-                pass
-
-        asyncio.create_task(warm())
-
     @staticmethod
     def _ctx_end(recs: list[dict], event: Turn) -> tuple[int, dict | None]:
         """聊天记录里这一句在哪：返回 (这一句之前有几条, 这一句的记录或 None)。
@@ -496,9 +440,8 @@ class StyleMind:
     def _long_ctx(self, event: Turn, title_of, sender_title: str, current: str,
                   max_lines: int = longctx.MAX_LINES, max_chars: int = longctx.MAX_CHARS,
                   me: str = "佳树", rich: bool = False) -> list[str] | None:
-        """写手看的长前文（rewrite.long_ctx，默认关；2026-11-17 第 7 轮）：kaju_life 的聊天记录里这一句之前的
-        最后十几行（带时间、换天插日期，格式见 longctx.py，和训练一字不差），最后一行是对方这一句（current，含引用）。
-        拿不到记录 → None（用短的）。"""
+        """回复器看的前文：kaju_life 的聊天记录里这一句之前的最后几行（带时间、换天插日期，格式见 longctx.py），
+        最后一行是对方这一句（current，含引用）。拿不到记录 → None（用短的）。"""
         life = self.body.find("log_own")
         diary = getattr(life, "diary", None)
         if diary is None or not hasattr(diary, "recent"):
@@ -596,7 +539,7 @@ class StyleMind:
     async def _replan(self, event: Turn, plan: dict) -> dict:
         """想的时候群里又来了消息：带上新来的几条让大脑重想一遍（rewrite.replan，默认开；一轮只重想一次）。
         照 MaiBot 的 planner_replan。重想用主模型（走模型挑选和后备），没答上来 / 解析不了就用原来的指导。
-        重想了还把新来的几条接到写手 / 回复器看的前文后面（不然它们只看到这句为止）。"""
+        重想了还把新来的几条接到回复器看的前文后面（不然它只看到这句为止）。"""
         cfg = self._sec("rewrite")
         if not cfg.get("replan", True) or not event.get_group_id():
             return plan
@@ -607,10 +550,8 @@ class StyleMind:
         title_of = lambda qq, name: self._address_of(qq, name) if qq else "身份不明"  # noqa: E731
         lines = [f"{r.get('t', '')} {title_of(str(r.get('u') or ''), str(r.get('n') or ''))}：{longctx._clean(longctx.marked(r, title_of, replyer.ME_LABEL))}".strip()
                  for r in new[-8:]]
-        history = [(str(m.get("role")), text_of(m.get("content"))) for m in (req.contexts or [])[-6:]
-                   if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
         extra = "".join(getattr(p, "text", "") or "" for p in (getattr(req, "extra_user_content_parts", None) or []))
-        prompt = brain.replan_prompt((req.prompt or "") + extra, history, lines)
+        prompt = brain.replan_prompt((req.prompt or "") + extra, self._history_of(req), lines)
         t0 = time.time()
         try:
             pid = await self.body.model_id()
@@ -629,10 +570,9 @@ class StyleMind:
         self.log.info(f"kaju_style: 想的时候又来了 {len(new)} 条，重想了一遍（{time.time() - t0:.0f}s）"
                       f"{again.get('回不回', '')} {again.get('局面', '')[:40]!r}")
         short = [f"{title_of(str(r.get('u') or ''), str(r.get('n') or ''))}：{longctx._clean(longctx.marked(r, title_of, replyer.ME_LABEL))}" for r in new[-8:]]
-        for var, add in ((_REPLYER_CTX, lines), (_WRITER_CTX, lines)):
-            cur = var.get()
-            if cur:
-                var.set(list(cur) + add)
+        cur = _REPLYER_CTX.get()
+        if cur:
+            _REPLYER_CTX.set(list(cur) + lines)
         event.set_extra("_ks_replan_ctx", short)
         return again
 
@@ -687,56 +627,38 @@ class StyleMind:
             ctx.append(f"{sender_title}：" + current)
             event.set_extra("_ks_rw_ctx", ctx)
             event.set_extra("_ks_rw_title", sender_title)
-            if bool(self._sec("rewrite").get("long_ctx", False)):
-                try:
-                    long = self._long_ctx(event, title_of, sender_title, current)
-                except Exception as e:  # noqa: BLE001  拿不到就用短的
-                    long = None
-                    self.log.info(f"kaju_style: 长前文没拿到（用短的） {type(e).__name__}: {e}")
-                event.set_extra("_ks_rw_long", long)
             rcfg = self._sec("rewrite")
-            if str(rcfg.get("replyer", "local")) == "api":
-                # 回复器多看聊天（2026-11-18 兄长：“群聊改成跟人家一样，但是私聊可以相对少一点”）：
-                # MaiBot 群聊参考最近 50 条（max_context_size）、私聊 75；这里群聊 50、私聊 20。本地写手照旧看 12 行（训练定死的）
-                key, dflt = ("replyer_ctx_group", 50) if event.get_group_id() else ("replyer_ctx_private", 20)
+            # 回复器多看聊天（2026-11-18 兄长：“群聊改成跟人家一样，但是私聊可以相对少一点”）：
+            # MaiBot 群聊参考最近 50 条（max_context_size）、私聊 75；这里群聊 50、私聊 20
+            key, dflt = ("replyer_ctx_group", 50) if event.get_group_id() else ("replyer_ctx_private", 20)
+            try:
+                n = int(rcfg.get(key, dflt) or 0)
+            except (TypeError, ValueError):
+                n = dflt
+            rc = None
+            if n > 0:
                 try:
-                    n = int(rcfg.get(key, dflt) or 0)
-                except (TypeError, ValueError):
-                    n = dflt
-                rc = None
-                if n > 0:
-                    try:
-                        rc = self._long_ctx(event, title_of, sender_title, current, max_lines=n,
-                                            max_chars=n * longctx.LINE_CHARS, me=replyer.ME_LABEL, rich=True)
-                    except Exception as e:  # noqa: BLE001  拿不到就用写手那份
-                        self.log.info(f"kaju_style: 回复器的前文没拿到（用写手那份） {type(e).__name__}: {e}")
-                event.set_extra("_ks_rw_replyer", rc)
+                    rc = self._long_ctx(event, title_of, sender_title, current, max_lines=n,
+                                        max_chars=n * longctx.LINE_CHARS, me=replyer.ME_LABEL, rich=True)
+                except Exception as e:  # noqa: BLE001  拿不到就用短的那份
+                    self.log.info(f"kaju_style: 回复器的前文没拿到（用短的） {type(e).__name__}: {e}")
+            event.set_extra("_ks_rw_replyer", rc)
         except Exception as e:  # noqa: BLE001
             self.log.warning(f"kaju_style: 重说层记上下文出错 {type(e).__name__}: {e}")
 
     def writer_only(self) -> bool:
-        """只发写手写的话（2026-11-13 兄长：“我不希望写手会经过 DeepSeek”）：默认开（rewrite.writer_only）。
-        回晚了、草稿带链接、出卡用不了、写手出错、核对没过……都不再退回发 DeepSeek 的草稿：
-        核对几遍都没过就发写手最后那一遍，写手 / 卡根本没有就这次不说。"""
+        """只发回复器写的话（2026-11-13 兄长：“我不希望写手会经过 DeepSeek”）：默认开（rewrite.writer_only）。
+        回晚了、大脑没给出指导、回复器出错、核对没过……都不发主模型回的原话：
+        核对几遍都没过按 guard_fail 处理，回复器根本没写成就这次不说。"""
         return bool(self._sec("rewrite").get("writer_only", True))
 
     def _guard_fail_mode(self) -> str:
         """核对几遍都没过时（只发写手的话）："silent" = 这句不说（11-13 兄长定：写手编的“兄长大人好帅”核对拦了三遍，
         照发写手最后一遍就把它发出去了）；"send_writer" = 照发写手最后一遍；
         "busy"（默认，11-15 兄长：一直不说话会以为哪里坏了）= 先让核对模型只改被拦的那一处、再核对一次，
-        还不行就照卡说一句“这会儿在忙，等下再好好回”。silent / busy 都先试改错（rewrite.guard_repair，默认开）。"""
+        还不行就说一句“这会儿在忙，等下再好好回”。silent / busy 都先试改错（rewrite.guard_repair，默认开）。"""
         mode = str(self._sec("rewrite").get("guard_fail", "busy") or "busy")
         return mode if mode in ("silent", "send_writer", "busy") else "busy"
-
-    def _mood_line(self) -> str:
-        """给写手的心情那一行（决定 19，和训练同一个函数）；心情读不到就不加（写手照常写，训练里也有三成不带）。"""
-        try:
-            from kaju_core.heart.mood_line import mood_line
-            h = parts.find("mood_snapshot")
-            return mood_line(h.mood_snapshot()) if h is not None else ""
-        except Exception as e:  # noqa: BLE001
-            self.log.info(f"kaju_style: 心情读不到（这次不带心情行） {type(e).__name__}: {e}")
-            return ""
 
     def _mood_words(self, group: bool = False) -> str:
         """给回复器的心情底色（2026-11-18 兄长“照 anima 做”）：和 kaju_heart【此刻的心情】里“- 心情：”同一套词
@@ -756,141 +678,78 @@ class StyleMind:
             self.log.info(f"kaju_style: 心情底色读不到（这次不带） {type(e).__name__}: {e}")
             return ""
 
-    def _warm_gemini(self) -> None:
-        """出卡要用 Gemini：中转站空闲一阵后第一次要 30 多秒，消息一来先用一个字把它叫醒（DeepSeek 写草稿的这几秒正好用上）。"""
-        if time.time() - self._gem_warm < 120:
-            return
-        self._gem_warm = time.time()
+    def _history_of(self, req) -> list[tuple[str, str]]:
+        """大脑那一轮请求里最近几轮对话，压成 (role, 文字)（重想、再问一遍时带上）。"""
+        return [(str(m.get("role")), text_of(m.get("content"))) for m in (getattr(req, "contexts", None) or [])[-6:]
+                if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
 
-        async def warm():
-            try:
-                from kaju_core.senses import omni
-                await omni.text("", "回一个字：好", timeout=60)
-            except Exception:  # noqa: BLE001 - 叫不醒也没关系，真出卡时自己会换 key
-                pass
-
-        asyncio.create_task(warm())
-
-    def _rw_model(self) -> str:
-        return str(self._sec("rewrite").get("card_model", "kaju-writer-p4-8b-k"))
-
-    async def _local_chat(self, system: str, user: str) -> str:
-        import aiohttp
-
+    async def _rethink(self, event: Turn, raw: str) -> dict | None:
+        """大脑这一轮回的不是能用的 JSON（11-21 两次：兄长喊她“妈妈”，Claude 直接用她的口吻写了回复）：
+        拿同一份材料再问一遍，最后叮嘱只输出 JSON（brain.RETHINK_NOTE）。走模型挑选和后备；这一遍没有工具。
+        还不行 → None。原来这时把它写的话当草稿摘第四版要点卡，11-21 兄长：不要那种卡了，换成规划器的形式。"""
+        req = event.get_extra("_ks_brain_req")
+        if req is None:
+            return None
         cfg = self._sec("rewrite")
-        # 8B 训练时关着思考（助手开头后有一段空的 <think></think>），不带 reasoning_effort 会写乱话（2026-11-11）。
-        # 长短不卡（兄长：不要强行限制她的字数）：max_tokens 只是防卡死的兜底，远高于她正常会写的长度
+        extra = "".join(getattr(p, "text", "") or "" for p in (getattr(req, "extra_user_content_parts", None) or []))
+        prompt = brain.rethink_prompt((req.prompt or "") + extra, self._history_of(req), raw, bool(event.get_group_id()))
+        t0 = time.time()
         try:
-            max_tokens = int(cfg.get("max_tokens", 1024) or 1024)
-        except (TypeError, ValueError):
-            max_tokens = 1024
-        body = {"model": self._rw_model(), "temperature": 0.7, "top_p": 0.9, "max_tokens": max_tokens,
-                "reasoning_effort": "none",
-                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
-        url = str(cfg.get("base_url", "http://127.0.0.1:11435/v1")).rstrip("/") + "/chat/completions"
-        timeout = aiohttp.ClientTimeout(total=float(cfg.get("timeout", 10)))
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post(url, json=body, headers={"Authorization": "Bearer local"}) as r:
-                r.raise_for_status()
-                data = await r.json()
-        return rewrite.clean_output(data["choices"][0]["message"]["content"])
+            pid = await self.body.model_id()
+            out = await self.body.generate(pid, prompt, req.system_prompt or "",
+                                           timeout=float(cfg.get("rethink_timeout", 45) or 45))
+        except Exception as e:  # noqa: BLE001
+            self.log.info(f"kaju_style: 大脑再想一遍没答上来 {type(e).__name__}: {str(e)[:60]}")
+            self._rec.note("rethink", {"error": type(e).__name__, "secs": round(time.time() - t0, 1)})
+            return None
+        plan = brain.parse(out)
+        if plan is not None and not event.get_group_id() and not plan.get("局面"):
+            plan = None  # 私聊一律回：只写了“不回”也不算
+        self._rec.note("rethink", {"plan": plan, "raw": None if plan else (out or "")[:300],
+                                   "secs": round(time.time() - t0, 1)})
+        if plan is None:
+            self.log.info(f"kaju_style: 大脑再想一遍还是没给出指导 {(out or '')[:60]!r}")
+        else:
+            self.log.info(f"kaju_style: 大脑再想了一遍（{time.time() - t0:.0f}s）{plan.get('回不回', '')} "
+                          f"{plan.get('局面', '')[:40]!r}")
+        return plan
 
-    async def _extract_card(self, ctx: list[str], draft: str, kind: str, title: str, felt: bool = False) -> str:
-        """第四版卡：Gemini（出卡那条链）把草稿整理成 场合/对象/局面/要说到的，再加心情行。拿不到就返回 ''；
-        Gemini 的 key 全挂了抛 omni.GeminiDown。"""
-        from kaju_core.senses import omni
-        try:
-            per_key = float(self._sec("rewrite").get("card_timeout_v4", 20) or 20)
-        except (TypeError, ValueError):
-            per_key = 20.0
-        out, n = await omni.text(card.EXTRACT_V4, card.extract_prompt_v4(ctx, draft, kind, title, felt), timeout=per_key)
-        g = card.parse_v4(out)
-        if not g:
-            self.log.info(f"kaju_style: Gemini 出的卡用不了（{out[:60]!r}）")
-            return ""
-        if n > 1:
-            self.log.info(f"kaju_style: 出卡用的是第 {n} 个 Gemini key")
-        return card.render_v4(kind, title, g, self._mood_line())
-
-    async def _recheck_card(self, ctx: list[str], draft: str, kind: str, title: str, card_text: str,
-                            new: str, why: str, felt: bool = False) -> str:
-        """同一张卡写的话两次被核对拦下：把卡、写出来的话、核对的问题交回给出卡的，让它对着草稿看卡有没有错。
-        卡有错 → 返回新卡；卡没错 / 看不懂 / Gemini 挂了 → 返回 ''（接着用原卡）。"""
-        state = _PLAN.get()
-        if state and state.get("brain"):  # 主模型当大脑出的卡：这一轮没法再问它一次，接着用原卡
-            return ""
-        from kaju_core.senses import omni
+    async def _plan_from_draft(self, ctx: list[str], draft: str, kind: str, title: str) -> dict | None:
+        """插件主动让她说的话（刷到视频想分享、补上答应的事、说说）：草稿交给主模型整理成大脑那样的指导（brain.FROM_DRAFT），
+        回复器再照指导写。整理不出来 → None（调用的地方这次就不说）。"""
         cfg = self._sec("rewrite")
-        try:
-            per_key = float(cfg.get("card_timeout_v4", 20) or 20)
-        except (TypeError, ValueError):
-            per_key = 20.0
-        try:
-            out, _ = await omni.text(card.EXTRACT_V4,
-                                     card.recheck_prompt_v4(ctx, draft, kind, title, card_text, new, why, felt),
-                                     timeout=per_key)
-        except Exception as e:  # noqa: BLE001  （GeminiDown 也在这：重抽不成就用原卡接着写）
-            self.log.info(f"kaju_style: 带着问题重新出卡没成（用原卡） {type(e).__name__}: {e}")
-            return ""
-        verdict, g = card.parse_recheck_v4(out)
-        if verdict == "keep":
-            self.log.info("kaju_style: 重新看了卡，卡没错（用原卡再写）")
-            return ""
-        if verdict == "bad":
-            self.log.info(f"kaju_style: 重新出的卡用不了（用原卡） {out[:60]!r}")
-            return ""
-        mood = next((x for x in card_text.splitlines() if x.startswith("心情：")), "")  # 心情行照旧
-        return card.render_v4(kind, title, g, mood)
+        pid = await self.body.model_id()
+        if not pid:
+            return None
+        t0 = time.time()
+        out = await self.body.generate(pid, brain.from_draft_prompt(kind, title, ctx, draft), brain.FROM_DRAFT,
+                                       timeout=float(cfg.get("rethink_timeout", 45) or 45))
+        plan = brain.parse(out)
+        self._rec.note("from_draft", {"plan": plan, "raw": None if plan else (out or "")[:300],
+                                      "secs": round(time.time() - t0, 1)})
+        if plan is None:
+            self.log.info(f"kaju_style: 主动的话整理不出指导 {(out or '')[:60]!r}")
+        return plan
 
-    async def _new_wording(self, ctx: list[str], draft: str, kind: str, title: str, felt: bool = False) -> tuple[str, str]:
-        """(new text, card) — 先抽要点卡，再让本地写手照卡写。不能用时 new = ''。"""
-        # felt 只在看完东西的回合才传（别的插件 / 测试换掉 _extract_card 时还是四个参数）
-        card_text = await (self._extract_card(ctx, draft, kind, title, felt=True) if felt
-                           else self._extract_card(ctx, draft, kind, title))
-        if not card_text:
-            return "", ""
-        return await self._write_from_card(ctx, card_text, draft, title), card_text
-
-    async def _write_from_card(self, ctx: list[str], card_text: str, draft: str, title: str) -> str:
-        """本地写手照卡写一遍（每次采样都不一样，被核对拦下时可以拿同一张卡再写一次）。不像回复就返回 ''。
-        第四版：提示和训练一字不差；写出来打转（卡死重复）也算没写好，交给"再写一次"。"""
-        short_ctx = ctx
-        ctx = _WRITER_CTX.get() or ctx  # 长前文（rewrite.long_ctx）：只换写手看的，出卡 / 核对照旧
-        state = _PLAN.get()
+    async def _write(self, ctx: list[str], plan: dict, kind: str, title: str, ref: str = "") -> str:
+        """回复器照指导写一遍（每次都不一样，被核对拦下时可以拿同一份指导再写）。没写成 / 不像回复 → ''。
+        ref：判繁体字时的参照（草稿 / 大脑定下的意思）。"""
         cfg = self._sec("rewrite")
-        local_ok = self._local_writer_on()
-        api = str(cfg.get("replyer", "local")) == "api"
-        if api and ((state and state.get("brain")) or not local_ok):
-            # 回复器（replyer.py，2026-11-18 兄长定照 MaiBot）：大脑的指导交给 API 大模型用她的口吻写；没写成就退回本地写手。
-            # 本地写手关了（rewrite.local_writer = false，11-18 晚兄长：“我不想再用本地写手了”）：不是大脑那一轮的卡
-            # （插件让她说话、草稿摘卡）也拆成指导交给回复器；回复器没写成就这次不说，不退回本地写手
-            plan = state["brain"] if state and state.get("brain") else replyer.plan_from_card(card_text)
-            if cfg.get("replyer_mood", True):  # 心情底色直接给回复器（11-18 量过：大脑写“情绪”时基本不看底色）
-                tone = self._mood_words(group=(replyer.kind_of(card_text) or "私聊") == "群聊")
-                plan = {**plan, "底色": tone} if tone else plan
-            rctx = _REPLYER_CTX.get()  # 回复器自己那份（群聊 50 行 / 私聊 20 行）；没有就用写手那份、只看最后 10 行
-            new, info = await replyer.reply(replyer.kind_of(card_text) or "私聊", title, list(rctx or ctx or []), plan,
-                                            cfg, said=(short_ctx or [""])[-1] if short_ctx else "", log=self.log,
-                                            ctx_lines=0 if rctx else 10, how=_HOW.get())
-            info["底色"] = plan.get("底色", "")
-            info["前文行数"] = len(rctx or (ctx or [])[-10:])
-            self._rec.note("replyer", {**info, "text": new[:300]})
-            if new and card.sane_v4(new, card_text, draft):
-                self.log.info(f"kaju_style: 回复器写好（{info.get('model', '')[:24]}，{info.get('secs')}s）{new[:40]!r}")
-                return new
-            if not local_ok:
-                self.log.info(f"kaju_style: 回复器没写成（{'；'.join(info.get('errors') or []) or '不像回复'}），本地写手关着")
-                return ""
-            self.log.info(f"kaju_style: 回复器没写成（{'；'.join(info.get('errors') or []) or '不像回复'}），换本地写手")
-        if not local_ok:
-            self.log.info("kaju_style: 本地写手关着、回复器也没开（rewrite.replyer 不是 api），这次写不了")
-            return ""
-        # 写手的系统提示要和它训练时一字不差：r6 及以前 v4，第 7 轮起 v5（去掉“不说你”）；rewrite.writer_system 和写手一起换
-        system = card.SYSTEM_V5 if str(self._sec("rewrite").get("writer_system", "v4")) == "v5" else card.SYSTEM_V4
-        new = card.fix_formal(await self._local_chat(system, card.write_prompt_v4(ctx, card_text)), draft, title)
-        if card.loops(new):
-            self.log.info(f"kaju_style: 写手这一遍打转了，不用 {new[:40]!r}")
-        return new if card.sane_v4(new, card_text, draft) else ""
+        if cfg.get("replyer_mood", True):  # 心情底色直接给回复器（11-18 量过：大脑写“情绪”时基本不看底色）
+            tone = self._mood_words(group=kind == "群聊")
+            plan = {**plan, "底色": tone} if tone else plan
+        rctx = _REPLYER_CTX.get()  # 回复器自己那份（群聊 50 行 / 私聊 20 行）；没有就用短的那份、只看最后 10 行
+        new, info = await replyer.reply(kind or "私聊", title, list(rctx or ctx or []), plan, cfg,
+                                        said=(ctx or [""])[-1] if ctx else "", log=self.log,
+                                        ctx_lines=0 if rctx else 10, how=_HOW.get())
+        info["底色"] = plan.get("底色", "")
+        info["前文行数"] = len(rctx or (ctx or [])[-10:])
+        self._rec.note("replyer", {**info, "text": new[:300]})
+        if new and replyer.sane(new, (ref or "") + replyer.plan_text(plan)):
+            self.log.info(f"kaju_style: 回复器写好（{info.get('model', '')[:24]}，{info.get('secs')}s）{new[:40]!r}")
+            return new
+        self.log.info(f"kaju_style: 回复器没写成（{'；'.join(info.get('errors') or []) or '不像回复'}）")
+        return ""
 
     async def _pick_emoji(self, event: Turn, text: str, plan: dict, ctx: list[str]) -> None:
         """表情包单独挑（emoji.py，rewrite.emoji = "separate"，2026-11-18）：她的话写好以后，“表情包”那一格
@@ -916,7 +775,7 @@ class StyleMind:
         if event.get_extra("meme_manager_legacy_probability_hit") is False:
             return  # 这一轮 meme_manager 掷骰没中：本来就不配图，也不用问模型
         try:
-            system, user = emoji.prompt(cats, text, list(_WRITER_CTX.get() or ctx or []), plan.get("情绪", ""), emoji.own_note(block))
+            system, user = emoji.prompt(cats, text, list(_REPLYER_CTX.get() or ctx or []), plan.get("情绪", ""), emoji.own_note(block))
             pid = await slot_model(self.body, "emoji", str(cfg.get("emoji_provider_id", "") or "").strip())
             if not pid:
                 return
@@ -931,18 +790,10 @@ class StyleMind:
         except Exception as e:  # noqa: BLE001
             self.log.info(f"kaju_style: 挑表情包没成（这次不配图） {type(e).__name__}: {e}")
 
-    async def _gemini_down(self, event: Turn, resp: Answer, why: str) -> None:
-        """出卡的 Gemini 全挂了（2026-11-13 兄长定，替掉决定 20 里“私聊由写手告诉”）：这一句谁那儿都不发
-        （群里不说话、私聊和私信也不回），另由 DeepSeek 用她的 QQ 和抖音私信告诉兄长（见 notify_gemini_down）。"""
-        where = "群里" if event.get_group_id() else "私聊"
-        self.log.warning(f"kaju_style: Gemini 全挂了，{where}这次不说话（{why[:200]}）")
-        self.notify_gemini_down(why)
-        self._hush(event, resp)
-
-    def notify_gemini_down(self, why: str = "") -> None:
-        """后台：DeepSeek 写一两句，用她的 QQ 私聊和抖音私信告诉兄长 Gemini 的 key 全用不了。
+    def notify_model_down(self) -> None:
+        """后台：DeepSeek 写一两句，用她的 QQ 私聊和抖音私信告诉兄长主模型连后备都没答上来。
         rewrite.gemini_down_notify_minutes（默认 30）分钟内只说一次；用哪个模型看 rewrite.gemini_down_provider_id（默认 deepseek）。
-        报错原文不给 DeepSeek（里面可能有中转地址），只说几个 key 都没答上来。"""
+        报错原文不给 DeepSeek（里面可能有中转地址）。"""
         cfg = self._sec("rewrite")
         try:
             gap = float(cfg.get("gemini_down_notify_minutes", 30) or 0) * 60
@@ -955,20 +806,14 @@ class StyleMind:
         async def go():
             try:
                 from kaju_core import people
-                from kaju_core.senses import omni
-                try:
-                    n = len(omni.gemini_keys())
-                except Exception:  # noqa: BLE001
-                    n = 0
                 pid = await self.body.model_id(str(cfg.get("gemini_down_provider_id", "deepseek") or "deepseek"))
                 if not pid:
-                    self.log.warning("kaju_style: Gemini 全挂了，可找不到 DeepSeek，没法告诉兄长")
+                    self.log.warning("kaju_style: 主模型全挂了，可找不到 DeepSeek，没法告诉兄长")
                     return
-                text = (await self.body.generate(pid, GEMINI_DOWN_PROMPT.format(what=down_summary(why, n)), GEMINI_DOWN_SYSTEM,
-                                                 timeout=40)).strip()
+                text = (await self.body.generate(pid, DOWN_PROMPT, DOWN_SYSTEM, timeout=40)).strip()
                 text = rewrite.split_tags(text)[0].strip()
                 if not text or text.upper().startswith("[SKIP"):
-                    self.log.warning("kaju_style: DeepSeek 没写出 Gemini 挂了的通知")
+                    self.log.warning("kaju_style: DeepSeek 没写出主模型挂了的通知")
                     return
                 told = []
                 owner = people.owner()
@@ -977,19 +822,19 @@ class StyleMind:
                         if await self.body.send(self.body.private_chat_id(owner), text):
                             told.append("QQ")
                     except Exception as e:  # noqa: BLE001
-                        self.log.warning(f"kaju_style: QQ 上没告诉成兄长 Gemini 挂了 {type(e).__name__}: {e}")
+                        self.log.warning(f"kaju_style: QQ 上没告诉成兄长主模型挂了 {type(e).__name__}: {e}")
                 dm = self.body.find("tell_owner_dm")
                 if dm is not None:
                     try:
                         told += await dm.tell_owner_dm(text, ("douyin",))
                     except Exception as e:  # noqa: BLE001
-                        self.log.warning(f"kaju_style: 抖音上没告诉成兄长 Gemini 挂了 {type(e).__name__}: {e}")
-                self.log.warning(f"kaju_style: 已告诉兄长 Gemini 全挂了（{'、'.join(told) or '哪边都没发出去'}）{text[:40]!r}")
+                        self.log.warning(f"kaju_style: 抖音上没告诉成兄长主模型挂了 {type(e).__name__}: {e}")
+                self.log.warning(f"kaju_style: 已告诉兄长主模型全挂了（{'、'.join(told) or '哪边都没发出去'}）{text[:40]!r}")
                 if not told:
                     self._gd_told = 0.0  # 一边都没发出去：下次再挂时再试
             except Exception as e:  # noqa: BLE001
                 self._gd_told = 0.0
-                self.log.warning(f"kaju_style: 告诉兄长 Gemini 挂了时出错 {type(e).__name__}: {e}")
+                self.log.warning(f"kaju_style: 告诉兄长主模型挂了时出错 {type(e).__name__}: {e}")
 
         asyncio.create_task(go())
 
@@ -1004,10 +849,8 @@ class StyleMind:
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _tries(self, card_text: str) -> int:
-        """照卡写最多写几遍：第一遍 + rewrite.retry（默认 1）。没抽出卡不重写。"""
-        if not card_text:
-            return 1
+    def _tries(self) -> int:
+        """照指导最多写几遍：第一遍 + rewrite.retry（默认 1）。"""
         try:
             return 1 + max(0, int(self._sec("rewrite").get("retry", 1) or 0))
         except (TypeError, ValueError):
@@ -1098,35 +941,36 @@ class StyleMind:
             return ""
 
     async def _busy_line(self, event: Turn, ctx: list[str], title: str, kind: str) -> str:
-        """改错也没成：让写手照卡说一句“这会儿在忙，等下再好好回”（在忙什么取日程），不说固定的句子。写手不行 → ''。"""
+        """回不成正经的话（核对全拦、改错也没成；私聊里大脑两遍都没给出指导）：让回复器说一句“这会儿在忙，等下再好好回”
+        （在忙什么取日程），不说固定的句子。回复器不行 → ''。"""
         doing = self._doing_now()
-        g = {"局面": f"{title}说了最后这句，佳树想好好回，可一时没整理好，轮到佳树回。",
-             "要说到的": [f"佳树这会儿在忙（{doing}）" if doing else "佳树这会儿有点忙",
-                         f"佳树等一下再好好回{title}刚才说的"]}
-        new = await self._write_from_card(ctx, card.render_v4(kind, title, g, self._mood_line()), "", title)
+        plan = {"局面": f"{title}说了最后这句，她想好好回，可一时没整理好",
+                "要表达的": [f"解释：这会儿在忙（{doing}）" if doing else "解释：这会儿有点忙",
+                          f"答应：等一下再好好回{title or '对方'}刚才说的"]}
+        new = await self._write(ctx, plan, kind, title)
         return (new or "").strip()
 
     async def polish(self, draft: str, ctx: list[str] | None = None, said: str = "", title: str = "兄长大人",
                      kind: str = "私聊", split: bool = True) -> str:
-        """给插件主动发的话用（kaju_basics 刷到视频想跟兄长说；qzone_post 的说说 kind="说说"）：私聊开着写手就过一遍
-        要点卡 + 写手 + 核对，再按聊天节奏分行（split=False 不分行）。
+        """给插件主动发的话用（kaju_basics 刷到视频想跟兄长说；qzone_post 的说说 kind="说说"）：私聊开着就过一遍
+        草稿整理成指导（_plan_from_draft）+ 回复器 + 核对，再按聊天节奏分行（split=False 不分行）。
         ctx 是"兄长大人：…""佳树：…"这样的上下文行；said 是触发这句话的事（给核对看）。任何一步不行就用原稿。
-        只发写手的话（writer_only，说说除外）：不用原稿——核对都没过发写手最后一遍，写手 / 卡没有就返回 ''（调用的地方这次就不说）。"""
+        只发回复器的话（writer_only，说说除外）：不用原稿——核对都没过按 guard_fail，整理不出指导 / 回复器没写成就返回 ''
+        （调用的地方这次就不说）。"""
         text = (draft or "").strip()
         cfg = self._sec("rewrite")
         strict = self.writer_only() and kind != "说说" and cfg.get("enable", False) and cfg.get("private", True)
         why = rewrite.skip_reason(text, int(cfg.get("max_chars", 400))) if text else "空"
         if strict and why and why != "空" and "[SKIP" not in text.upper():
-            why = ""  # 带链接 / 太长 / 中文少：以前直接发原稿，现在照样交给写手
+            why = ""  # 带链接 / 太长 / 中文少：以前直接发原稿，现在照样交给回复器
         if text and cfg.get("enable", False) and cfg.get("private", True) and not why:
-            last = ""  # 写手写出来、但核对没过的最后一遍
+            last = ""  # 回复器写出来、但核对没过的最后一遍
             try:
                 wtitle = "" if kind == "说说" else title
-                new, card_text = await self._new_wording(list(ctx or []), text, kind, wtitle)
-                tries = self._tries(card_text)
-                for attempt in range(tries):  # 照卡写没过就拿同一张卡再写一次（同 _rewrite_reply）
-                    if attempt:
-                        new = await self._write_from_card(list(ctx or []), card_text, text, wtitle)
+                plan = await self._plan_from_draft(list(ctx or []), text, kind, wtitle)
+                tries = self._tries() if plan else 0
+                for attempt in range(tries):  # 照指导写没过就拿同一份指导再写一次（同 _rewrite_reply）
+                    new = await self._write(list(ctx or []), plan, kind, wtitle, text)
                     if not (new and (strict or new.strip() != text) and
                             (cfg.get("guard", True) or not rewrite.needs_title_guard(new, title, kind))):
                         continue
@@ -1152,14 +996,11 @@ class StyleMind:
                         send_last = self._guard_fail_mode() == "send_writer"
                         if last:
                             self.log.info(f"kaju_style: 主动的话核对 {tries} 遍都没过，"
-                                          f"{'发写手最后一遍' if send_last else '这次不说'} {last[:30]!r}")
+                                          f"{'发最后一遍' if send_last else '这次不说'} {last[:30]!r}")
                         text = last if send_last else ""
             except Exception as e:  # noqa: BLE001
-                if type(e).__name__ == "GeminiDown":  # Gemini 全挂了不发草稿，交给调用的地方（kaju_basics 这次就不主动说）
-                    self.notify_gemini_down(str(e))
-                    raise
                 if strict:
-                    self.log.info(f"kaju_style: 主动的话写手没写成（这次不说） {type(e).__name__}: {e}")
+                    self.log.info(f"kaju_style: 主动的话没写成（这次不说） {type(e).__name__}: {e}")
                     text = last if self._guard_fail_mode() == "send_writer" else ""
                 else:
                     self.log.info(f"kaju_style: 主动的话没重说成（用原稿） {type(e).__name__}: {e}")
@@ -1171,24 +1012,24 @@ class StyleMind:
 
     async def say_from_card(self, event: Turn, points: list[str], emotion: str = "平常",
                             attitude: str = "平常", reply_to: str = "", said: str = "") -> str:
-        """插件要她先说一句（kaju_basics 看视频前"先去看"）：不用 DeepSeek 起草，直接把要点卡交给本地写手写，
-        说法每次由写手按上下文定（不再从固定的几句里挑）。写手没开、出错、写出来不像话 → ''（就不说）。"""
+        """插件要她先说一句（kaju_basics 看视频前"先去看"）：不用主模型起草，插件给的要点直接拼成指导交给回复器，
+        说法每次由回复器按上下文定（不从固定的几句里挑）。回复器没写成、写出来不像话 → ''（就不说）。
+        emotion / attitude 是第一版卡留下的参数，现在不用（留着，调用的插件不用改）。"""
         cfg = self._sec("rewrite")
         if not cfg.get("enable", False) or not points:
             return ""
         title = self._titles(event)[0]
         kind = "群聊" if event.get_group_id() else "私聊"
         ctx = [f"{title}：{said}"] if said else []
-        # 局面由这里拼（插件知道发生了什么），要点照插件给的；emotion / attitude 是第一版卡的栏目，第四版卡不用（参数留着，调用的插件不用改）
         about = f"，接的是“{reply_to}”" if reply_to else ""
-        g = {"局面": (f"{title}说了上面这句{about}，轮到佳树回。" if said else f"轮到佳树对{title}开口。"),
-             "要说到的": list(points)}
-        new = await self._write_from_card(ctx, card.render_v4(kind, title, g, self._mood_line()), "", title)
+        plan = {"局面": (f"{title}说了上面这句{about}，轮到她回" if said else f"轮到她对{title}开口"),
+                "要表达的": list(points)}
+        new = await self._write(ctx, plan, kind, title)
         if not new:
             return ""
         if self._sec("rhythm").get("enable", True):
             new = self._restyle(new)
-        self.log.info(f"kaju_style: 照卡写了一句 {new[:30]!r}")
+        self.log.info(f"kaju_style: 照要点写了一句 {new[:30]!r}")
         return new.strip()
 
     async def rewrite_reply(self, event: Turn, resp: Answer):
@@ -1201,29 +1042,28 @@ class StyleMind:
                           used=event.get_extra("kaju_style_rewritten") is not None)
 
     async def _rewrite_reply(self, event: Turn, resp: Answer):
-        """主模型的回复（草稿或大脑的指导）交给写手照卡写，核对没问题才换上。
-        只发写手的话（writer_only，默认，2026-11-13）：不发原稿——回晚了、草稿带链接也照样过写手；
-        核对几遍都没过按 guard_fail 处理；卡 / 写手根本没有就这次不说。writer_only 关了才会退回发原稿。"""
+        """主模型这一轮当大脑：回来的 JSON 指导交给回复器写，核对没问题才换上。
+        大脑没给出能用的指导 → 同一份材料再问它一遍（_rethink）；还不行，私聊说一句在忙、群里不说（11-21 兄长定）。
+        只发回复器写的话（writer_only，默认，2026-11-13）：主模型回的东西本身从不发出去；核对几遍都没过按 guard_fail 处理。
+        writer_only 关了，没指导时才照发主模型的原话。"""
         if getattr(resp, "tools_call_name", None) or event.get_extra("_ks_rw_done") or getattr(resp, "role", "") == "err":
-            return  # 报错不是草稿（主模型全挂时由 hush_model_error 处理）
+            return  # 报错不是指导（主模型全挂时由 hush_model_error 处理）
         strict = self.writer_only() and self._rewrite_on(event)
         ctx = event.get_extra("_ks_rw_ctx")
         if not ctx:
             if not strict:
                 return
-            # 这一轮没记上下文（rewrite_snapshot 没跑到 / 出错）：以前直接发原稿，现在只拿对方这句给写手
+            # 这一轮没记上下文（rewrite_snapshot 没跑到 / 出错）：只拿对方这句给回复器
             title0 = event.get_extra("_ks_rw_title") or self._titles(event)[0]
             ctx = [f"{title0}：" + (event.message_str or "").replace("\n", " / ")[:160]]
             event.set_extra("_ks_rw_title", title0)
-            self.log.info("kaju_style: 这一轮没记上下文，只拿对方这句给写手")
-        event.set_extra("_ks_rw_ctx", None)  # 一轮只重说一次
+            self.log.info("kaju_style: 这一轮没记上下文，只拿对方这句给回复器")
+        event.set_extra("_ks_rw_ctx", None)  # 一轮只写一次
         event.set_extra("_ks_rw_done", True)
-        _WRITER_CTX.set(event.get_extra("_ks_rw_long") or None)  # 这一轮（这个 task）写手看长前文；没开 / 没拿到就是 None
         _REPLYER_CTX.set(event.get_extra("_ks_rw_replyer") or None)  # 回复器看的前文（群聊 50 行、私聊 20 行）
-        _PLAN.set(None)  # 大脑的指导下面解析出来才放进去
         _HOW.set(event.get_extra("_ks_how") or "")
         cfg = self._sec("rewrite")
-        # 已经回晚了（模型卡过、群里排着队）：重说 + 核对还要 3~4 秒，先把话发出去（只发写手的话时不跳过）
+        # 已经回晚了（模型卡过、群里排着队）：写 + 核对还要 3~4 秒，先把话发出去（只发回复器的话时不跳过）
         try:
             late = 0.0 if strict else float(cfg.get("skip_when_late", 25) or 0)
             arrived = float(event.get_extra("_kaju_quote_t") or 0)  # kaju_basics 记的这条消息到达时间
@@ -1231,85 +1071,87 @@ class StyleMind:
             late, arrived = 0.0, 0.0
         if late > 0 and (event.get_extra("_kaju_felt") or event.get_extra("kaju_docs_read")):
             # 这一轮她是看完视频 / 听完歌 / 读完文件才回的：等的时间本来就花在看上，不算"回晚了"。
-            # 2026-11-11 兄长定：看完的感想一定过写手，多等几秒也行（之前 28 次里有 16 次因为这条直接发了原稿）
             late = 0.0
         if late > 0 and arrived and time.time() - arrived > late:
-            self.log.info(f"kaju_style: 重说层跳过（这条已经等了 {time.time() - arrived:.0f}s，先快点回）")
+            self.log.info(f"kaju_style: 写的这层跳过（这条已经等了 {time.time() - arrived:.0f}s，先快点回）")
             return
         draft, tags = rewrite.split_tags(getattr(resp, "completion_text", "") or "")
         title = event.get_extra("_ks_rw_title") or ""
         kind = "群聊" if event.get_group_id() else "私聊"
+        brain_turn = bool(event.get_extra("_ks_brain"))
         plan = None
-        if event.get_extra("_ks_brain"):  # 主模型这一轮当的是大脑：回来的是 JSON 指导（brain.py）
+        if brain_turn:  # 主模型这一轮当的是大脑：回来的应该是 JSON 指导（brain.py）
             plan = brain.parse(draft)
             if plan is not None and kind != "群聊" and not plan.get("局面"):
-                plan = None  # 私聊只写了“不回”：没东西可排卡，照旧当草稿
+                plan = None  # 私聊一律回：只写了“不回”不算
             self._rec.note("brain", {"plan": plan, "raw": None if plan else draft[:500]})
-            if plan is not None and kind == "群聊":  # 想的时候群里又来了：重想一遍（11-18 晚）
+            if plan is None:
+                self.log.info(f"kaju_style: 大脑没给出指导，拿同一份材料再问一遍 {draft[:60]!r}")
+                plan = await self._rethink(event, draft)
+            elif kind == "群聊":  # 想的时候群里又来了：重想一遍（11-18 晚）
                 plan = await self._replan(event, plan)
                 more = event.get_extra("_ks_replan_ctx")
                 if more:
                     ctx = list(ctx) + list(more)
-                if plan is not None and plan.get("回不回") != "不回":  # 没人叫她的轮次：发之前单独把一下关
-                    plan = await self._action_judge(event, plan, ctx)
-            if plan is not None:  # follow_through 看“答应：…”有没有真做（11-19：答应“去查 Hoody”却没调工具）
-                event.set_extra("_ks_plan", plan)
-            if plan is None:
-                self.log.info(f"kaju_style: 大脑的指导解析不了，当草稿照旧摘卡 {draft[:60]!r}")
-            elif kind == "群聊" and plan.get("回不回") == "不回":
-                if str(cfg.get("planner_skip", "log")) == "group":
-                    self.log.info(f"kaju_style: 大脑说群里这句不用回，这次不说 {plan.get('局面', '')[:40]!r}")
-                    event.set_extra("kaju_style_rewritten", {"draft": draft, "new": ""})  # 历史里别留下 JSON
-                    self._hush(event, resp)
-                    return
-                self.log.info(f"kaju_style: 大脑说群里这句可以不回（只记，照样回） {plan.get('局面', '')[:40]!r}")
+            if plan is not None and kind == "群聊" and plan.get("回不回") != "不回":  # 没人叫她的轮次：发之前单独把一下关
+                plan = await self._action_judge(event, plan, ctx)
+        elif not draft.strip() or "[SKIP" in draft.upper():
+            if strict:  # 这一轮没换成大脑、主模型自己说了不回
+                self._hush(event, resp)
+            return
+        else:  # 这一轮没换成大脑（换提示时出错）：回来的是她的话的草稿，整理成指导
+            try:
+                plan = await self._plan_from_draft(ctx, draft, kind, title)
+            except Exception as e:  # noqa: BLE001
+                self.log.info(f"kaju_style: 草稿整理成指导没成 {type(e).__name__}: {str(e)[:60]}")
         if plan is None:
-            why = rewrite.skip_reason(draft, int(cfg.get("max_chars", 400)))
-            if strict and why and why != "空" and "[SKIP" not in draft.upper():
-                self.log.info(f"kaju_style: 草稿{why}，照样交给写手（只发写手的话）")
-                why = ""
-            if why:
-                self.log.info(f"kaju_style: 重说层跳过（{why}）")
+            if not strict:
+                return  # writer_only 关着：照发主模型的原话
+            busy = ""
+            if kind != "群聊":  # 11-21 兄长：私聊说一句在忙（群里照旧不说）
+                try:
+                    busy = await self._busy_line(event, ctx, title, kind)
+                except Exception as e:  # noqa: BLE001
+                    self.log.info(f"kaju_style: 说在忙那句也没写成 {type(e).__name__}: {str(e)[:60]}")
+            if busy:
+                self.log.warning(f"kaju_style: 大脑两遍都没给出指导，先说一句在忙 {busy[:40]!r}")
+                event.set_extra("kaju_style_busy", True)
+                resp.completion_text = busy
+                event.set_extra("kaju_style_rewritten", {"draft": draft, "new": busy})
                 return
-        t0 = time.time()
-        try:
-            if plan is not None:  # 大脑的指导直接排成卡；核对、改错拿“大脑定下的意思”当草稿比
-                _PLAN.set({"brain": plan})
-                draft = brain.reference(plan)
-                card_text = brain.card_of(kind, title, plan, self._mood_line())
-                new = await self._write_from_card(ctx, card_text, draft, title)
-            elif event.get_extra("_kaju_felt"):  # 看完东西的回合（别的地方换掉 _new_wording 时还是四个参数，只在这时多传）
-                new, card_text = await self._new_wording(ctx, draft, kind, title, felt=True)
-            else:
-                new, card_text = await self._new_wording(ctx, draft, kind, title)
-        except Exception as e:  # noqa: BLE001
-            if type(e).__name__ == "GeminiDown":  # 第四版出卡的 Gemini 全挂了：这句不发，DeepSeek 告诉兄长
-                await self._gemini_down(event, resp, str(e))
-                return
-            if strict:
-                self.log.warning(f"kaju_style: 写手这边没回（这次不说） {type(e).__name__}: {e}")
+            self.log.warning(f"kaju_style: 大脑两遍都没给出指导，{'群里' if kind == '群聊' else ''}这次不说")
+            event.set_extra("kaju_style_rewritten", {"draft": draft, "new": ""})  # 历史里别留下它写的东西
+            self._hush(event, resp)
+            return
+        event.set_extra("_ks_plan", plan)  # follow_through 看“答应：…”有没有真做（11-19：答应“去查 Hoody”却没调工具）
+        if kind == "群聊" and plan.get("回不回") == "不回":
+            if str(cfg.get("planner_skip", "log")) == "group":
+                self.log.info(f"kaju_style: 大脑说群里这句不用回，这次不说 {plan.get('局面', '')[:40]!r}")
+                event.set_extra("kaju_style_rewritten", {"draft": draft, "new": ""})  # 历史里别留下 JSON
                 self._hush(event, resp)
                 return
-            self.log.warning(f"kaju_style: 重说层没回（发原稿） {type(e).__name__}: {e}")
-            return
-        if card_text:
-            event.set_extra("kaju_style_card", card_text)
-        # 照卡写：写出来不像回复、或者核对没过，就拿同一张卡再写一次（2026-11-08：线上 58 次里 14 次被拦，
-        # 大半是写手这一遍编了/漏了，换一遍采样常常就对了）；核对本身出错（超时）不重写，重写也救不了
-        tries = self._tries(card_text)
-        # 发之前查套路（routine.py）：off 不查 / log 只记不拦（默认）/ on 撞了拿同一张卡再写一遍，两遍里挑撞得少的
-        routine_mode = str(cfg.get("routine", "log") or "off")
-        held = None  # 核对过了、但撞了套路的那一遍 (new, hits, attempt, t1)：再写的那遍不行就发它，不退回原稿
-        done = None  # 最后要发的那一遍
-        flagged = None  # 只发写手的话：核对没过、但总归是写手写的最后一遍
-        flagged_why = ""  # 那一遍核对说的问题（改错用）
-        fallback = "" if strict else "（发原稿）"
-        rejects = 0  # 核对拦下几遍（核对出错不算）
+            self.log.info(f"kaju_style: 大脑说群里这句可以不回（只记，照样回） {plan.get('局面', '')[:40]!r}")
+        draft = brain.reference(plan)  # 核对、改错拿“大脑定下的意思”当草稿比
+        t0 = time.time()
         try:
-            recard_after = int(cfg.get("recard_after", 2) or 0)  # 拦下这么多遍就带着问题重新出卡；0 = 不重出
-        except (TypeError, ValueError):
-            recard_after = 2
-        felt = bool(event.get_extra("_kaju_felt"))
+            new = await self._write(ctx, plan, kind, title, draft)
+        except Exception as e:  # noqa: BLE001
+            if strict:
+                self.log.warning(f"kaju_style: 回复器这边没回（这次不说） {type(e).__name__}: {e}")
+                self._hush(event, resp)
+                return
+            self.log.warning(f"kaju_style: 回复器这边没回（发原话） {type(e).__name__}: {e}")
+            return
+        # 写出来不像回复、或者核对没过，就拿同一份指导再写一次（2026-11-08：线上 58 次里 14 次被拦，
+        # 大半是这一遍编了/漏了，换一遍常常就对了）；核对本身出错（超时）不重写，重写也救不了
+        tries = self._tries()
+        # 发之前查套路（routine.py）：off 不查 / log 只记不拦（默认）/ on 撞了再写一遍，两遍里挑撞得少的
+        routine_mode = str(cfg.get("routine", "log") or "off")
+        held = None  # 核对过了、但撞了套路的那一遍 (new, hits, attempt, t1)：再写的那遍不行就发它
+        done = None  # 最后要发的那一遍
+        flagged = None  # 只发回复器的话：核对没过、但总归是回复器写的最后一遍
+        flagged_why = ""  # 那一遍核对说的问题（改错用）
+        fallback = "" if strict else "（发原话）"
         for attempt in range(tries):
             again = attempt + 1 < tries
             if attempt:
@@ -1317,18 +1159,18 @@ class StyleMind:
                     self.log.info("kaju_style: 来不及再写一次了" + ("" if held else fallback))
                     break
                 try:
-                    new = await self._write_from_card(ctx, card_text, draft, title)
+                    new = await self._write(ctx, plan, kind, title, draft)
                 except Exception as e:  # noqa: BLE001
                     self.log.info(f"kaju_style: 再写一次没回{'' if held else fallback} {type(e).__name__}: {e}")
                     break
             if not new or (not strict and new.strip() == draft.strip()):
-                why = "一样" if new else ("没抽出要点卡" if not card_text else "不像回复")
-                self.log.info(f"kaju_style: 重说结果不用（{why}）{'，再写一次' if again else ''}")
+                why = "一样" if new else "不像回复"
+                self.log.info(f"kaju_style: 写的结果不用（{why}）{'，再写一次' if again else ''}")
                 if again:
                     continue
                 break
             if rewrite.needs_title_guard(new, title, kind) and not cfg.get("guard", True) and not strict:
-                self.log.info(f"kaju_style: 兄长称呼需要核对但核对未启用（发原稿） {new[:40]!r}")
+                self.log.info(f"kaju_style: 兄长称呼需要核对但核对未启用（发原话） {new[:40]!r}")
                 break
             t1 = time.time()
             if cfg.get("guard", True):
@@ -1339,23 +1181,16 @@ class StyleMind:
                     res, errored = (True, f"核对失败 {type(e).__name__}"), True
                 bad, what = res[0], res[1]
                 if bad and strict and errored:
-                    self.log.info(f"kaju_style: {what}，写手这一遍照发 {new[:40]!r}")
+                    self.log.info(f"kaju_style: {what}，这一遍照发 {new[:40]!r}")
                     bad = False
                 if bad:
                     if strict:
                         flagged = (new, [], attempt, t1)
                         flagged_why = what
                     if again and not errored:
-                        rejects += 1
-                        self.log.info(f"kaju_style: 重说核对没过（{what}），再写一次 {new[:40]!r}")
-                        if recard_after and rejects == recard_after:  # 同一张卡连着被拦：可能是卡错了，回去重出（只一次）
-                            fresh = await self._recheck_card(ctx, draft, kind, title, card_text, new, what, felt)
-                            if fresh and fresh != card_text:
-                                self.log.info(f"kaju_style: 带着问题重新出了卡 {fresh.splitlines()[3][:60]!r}")
-                                card_text = fresh
-                                event.set_extra("kaju_style_card", card_text)
+                        self.log.info(f"kaju_style: 核对没过（{what}），再写一次 {new[:40]!r}")
                         continue
-                    self.log.info(f"kaju_style: 重说核对没过（{'' if held or strict else '发原稿：'}{what}） {new[:40]!r}")
+                    self.log.info(f"kaju_style: 核对没过（{'' if held or strict else '发原话：'}{what}） {new[:40]!r}")
                     break
                 op = rewrite.added_opener(new, draft)
                 if op and len(res) > 2 and not res[2]:
@@ -1376,20 +1211,19 @@ class StyleMind:
             mode = self._guard_fail_mode()
             if mode == "send_writer":
                 done = flagged
-                self.log.info(f"kaju_style: 核对 {tries} 遍都没过，发写手最后一遍（只发写手的话）")
+                self.log.info(f"kaju_style: 核对 {tries} 遍都没过，发最后一遍")
             else:  # 11-13 兄长：核对拦下的（编了“兄长大人好帅”）不能照发
                 done = await self._after_all_rejected(event, ctx, draft, flagged, flagged_why, title, kind, tries, mode)
         if not done:
             if strict:
-                self.log.warning("kaju_style: 写手这一轮一句也没写成（这次不说）")
+                self.log.warning("kaju_style: 回复器这一轮一句也没写成（这次不说）")
                 self._hush(event, resp)
             return
         new, _, attempt, t1 = done
-        if plan is not None:
-            await self._pick_emoji(event, new, plan, ctx)
+        await self._pick_emoji(event, new, plan, ctx)
         resp.completion_text = rewrite.with_tags(new, tags)
         event.set_extra("kaju_style_rewritten", {"draft": draft, "new": resp.completion_text})
-        how = "照卡写" + (f"（第 {attempt + 1} 遍）" if attempt else "")
+        how = "照指导写" + (f"（第 {attempt + 1} 遍）" if attempt else "")
         self.log.info(f"kaju_style: {how} {t1 - t0:.1f}s + 核对 {time.time() - t1:.1f}s {draft[:30]!r} -> {new[:30]!r}")
 
     async def rewrite_history(self, event: Turn, run_context, response: Answer):
@@ -1453,8 +1287,8 @@ class StyleMind:
             return []
 
     async def hush_model_error(self, event: Turn):
-        """只发写手的话（2026-11-13）：主模型（Gemini）连后备都失败时，AstrBot 会直接发人设里的固定句子
-        （“唔…佳树刚才走神了…”）或“LLM 响应错误: …”。这句不是写手写的 → 不发；当成 Gemini 全挂了，DeepSeek 告诉兄长。"""
+        """只发回复器的话（2026-11-13）：主模型连后备都失败时，AstrBot 会直接发人设里的固定句子
+        （“唔…佳树刚才走神了…”）或“LLM 响应错误: …”。这句不是回复器写的 → 不发，DeepSeek 告诉兄长。"""
         if not self.writer_only():
             return
         result = event.get_result()
@@ -1466,7 +1300,7 @@ class StyleMind:
         if not (MODEL_ERROR.match(text) or text in self._model_error_texts()):
             return
         self.log.warning(f"kaju_style: 主模型全挂了，AstrBot 要发的报错这次不发 {text[:60]!r}")
-        self.notify_gemini_down("main")
+        self.notify_model_down()
         for name in ("clear_result", "stop_event"):
             fn = getattr(event, name, None)
             if fn is not None:

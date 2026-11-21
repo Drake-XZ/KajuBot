@@ -3,8 +3,8 @@
 查这几件事：
 - swap_persona 只换人设那一段（扮佳树说话的规矩），技能、别的材料不动；找不到人设就放最前面
 - 请求钩子：开着才换、记上 _ks_brain；关着 / 这一轮不重说不动
-- 回复：大脑的 JSON → 卡（要说到的里是标签）→ 写手；不再调模型摘卡；表情标记照样接在后面；核对拿“大脑定下的意思”当草稿
-- 解析不了 → 当草稿照旧摘卡；群里“不回”：planner_skip=group 才真不说（历史里不留 JSON）
+- 回复：大脑的 JSON → 回复器；表情标记照样接在后面；核对拿“大脑定下的意思”当草稿
+- 解析不了又再问不了 → 私聊说一句在忙（11-21 起没有摘卡退路）；群里“不回”：planner_skip=group 才真不说（历史里不留 JSON）
 - 问句把关不碰大脑那一轮
 
     <venv>\\Scripts\\python.exe -I D:\\JiashuBot\\bot_setup\\tests\\test_style_brain.py
@@ -25,16 +25,14 @@ os.environ["STUB_DATA"] = tempfile.mkdtemp()
 from astrbot.api.event import AstrMessageEvent  # noqa: E402
 from astrbot.api.provider import LLMResponse  # noqa: E402
 from astrbot.api.star import Context  # noqa: E402
-from kaju_core.senses import omni  # noqa: E402
-from kaju_core.voice import brain, card  # noqa: E402
+from kaju_core.voice import brain, replyer  # noqa: E402
 from kaju_style.main import KajuStyle  # noqa: E402
 
 SYS = ("You are running in Safe Mode.\n\n# Persona Instructions\n\n你叫温水佳树，初三。\n1. 默认中文\n\n"
        "## Skills\n\n- documents\n\n【佳树的日记】昨天读了小说")
 PLAN = {"回不回": "回", "局面": "兄长大人问她明晚有没有空，轮到她回。", "要接住的": "兄长大人问明晚有没有空",
         "要表达的": ["回答：明晚有空", "反问：找她什么事"], "背景": [], "情绪": "开心"}
-V4 = {"enable": True, "card_format": "v4", "card_model": "kaju-writer-p6-8b-r7k", "shadow_plan": False, "main_role": "brain"}
-GEM = json.dumps({"局面": "兄长大人在问，轮到佳树回。", "要说到的": ["佳树明晚有空"]}, ensure_ascii=False)
+V4 = {"enable": True, "shadow_plan": False}
 
 
 class Pure(unittest.TestCase):
@@ -48,10 +46,7 @@ class Pure(unittest.TestCase):
         self.assertIn("【佳树的日记】昨天读了小说", s)
         self.assertTrue(brain.swap_persona("只有材料").startswith(brain.PLAN_BRAIN))
 
-    def test_card_and_reference(self):
-        c = brain.card_of("私聊", "兄长大人", PLAN, "心情：开心6")
-        self.assertIn("局面：兄长大人问她明晚有没有空，轮到她回。要接住的：兄长大人问明晚有没有空\n", c)
-        self.assertIn("要说到的：回答：明晚有空；反问：找她什么事\n心情：开心6", c)
+    def test_reference(self):
         r = brain.reference(PLAN)
         self.assertIn("她要表达的：回答：明晚有空；反问：找她什么事", r)
 
@@ -109,27 +104,24 @@ class Pure(unittest.TestCase):
 class Flow(unittest.IsolatedAsyncioTestCase):
     def make(self, cfg=None, writes=None):
         style = KajuStyle(Context(), {"rewrite": {**V4, **(cfg or {})}})
-        self.writes, self.bodies, self.calls, self.guards = list(writes or []), [], [], []
+        self.writes, self.bodies, self.guards = list(writes or []), [], []
+        real = replyer.reply
 
-        async def fake_text(system, user, timeout=20, thinking="low"):
-            self.calls.append(system)
-            return GEM, 1
-        self.real_text, omni.text = omni.text, fake_text
-
-        async def local_chat(system, user):
-            self.bodies.append((system, user))
-            return self.writes.pop(0)
+        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
+            self.bodies.append({"kind": kind, "title": title, "ctx": list(ctx), "plan": dict(plan), "said": said,
+                                "ctx_lines": ctx_lines})
+            w = self.writes.pop(0) if self.writes else ""
+            return w, {"model": "测试", "secs": 0.1, "examples": [], "errors": [] if w else ["没写出来"]}
+        replyer.reply = fake_reply
+        self.addCleanup(setattr, replyer, "reply", real)
 
         async def guard(said, draft, new, title="", ctx=None):
             self.guards.append(draft)
             return (False, "", True)
-        style._local_chat, style._guard = local_chat, guard
-        style._mood_line = lambda: "心情：开心6"
+        style._guard = guard
+        style._mood_words = lambda **kw: ""
         style._rewrite_on = lambda event: True
         return style
-
-    def tearDown(self):
-        omni.text = self.real_text
 
     async def reply(self, style, text, group=False, brain_turn=True):
         ev = AstrMessageEvent(text="明晚有空吗", group="222222222" if group else "")
@@ -147,108 +139,67 @@ class Flow(unittest.IsolatedAsyncioTestCase):
         req = SimpleNamespace(system_prompt=SYS)
         await style.brain_request(ev, req)
         self.assertTrue(ev.get_extra("_ks_brain"))
+        self.assertIs(ev.get_extra("_ks_brain_req"), req)
         self.assertIn("# 你的任务", req.system_prompt)
-        off = self.make({"main_role": "draft"})
-        ev2, req2 = AstrMessageEvent(text="在吗"), SimpleNamespace(system_prompt=SYS)
-        await off.brain_request(ev2, req2)
-        self.assertFalse(ev2.get_extra("_ks_brain"))
-        self.assertEqual(req2.system_prompt, SYS)
         style._rewrite_on = lambda event: False  # 这一轮不重说：不换
         ev3, req3 = AstrMessageEvent(text="在吗"), SimpleNamespace(system_prompt=SYS)
         await style.brain_request(ev3, req3)
         self.assertEqual(req3.system_prompt, SYS)
+        self.assertFalse(ev3.get_extra("_ks_brain"))
 
-    async def test_plan_to_writer(self):
+    async def test_plan_to_replyer(self):
         style = self.make(writes=["明晚有空的兄长大人！找佳树有什么事吗？"])
         ev, out = await self.reply(style, json.dumps(PLAN, ensure_ascii=False) + "&&happy&&")
-        self.assertEqual(self.calls, [])  # 不再摘卡
-        system, user = self.bodies[0]
-        self.assertEqual(system, card.SYSTEM_V4)
-        self.assertIn("要说到的：回答：明晚有空；反问：找她什么事\n心情：开心6", user)
+        b = self.bodies[0]
+        self.assertEqual((b["kind"], b["title"], b["plan"]["要表达的"], b["said"]),
+                         ("私聊", "兄长大人", ["回答：明晚有空", "反问：找她什么事"], "兄长大人：明晚有空吗"))
         self.assertEqual(out, "明晚有空的兄长大人！找佳树有什么事吗？\n&&happy&&")
-        self.assertEqual(self.guards, [brain.reference(PLAN)])
+        self.assertEqual(self.guards, [brain.reference(PLAN)])  # 核对拿大脑定下的意思比
         self.assertEqual(ev.get_extra("kaju_style_rewritten")["new"].split("\n")[0], "明晚有空的兄长大人！找佳树有什么事吗？")
 
-    async def test_unparsable_falls_back(self):
-        style = self.make(writes=["佳树明晚有空哦"])
-        _, out = await self.reply(style, "兄长大人明晚有空哦，找佳树什么事呀")
-        self.assertEqual(out, "佳树明晚有空哦")
-        self.assertEqual(self.calls, [card.EXTRACT_V4])
+    async def test_unparsable_without_request_says_busy(self):
+        # 没有记下大脑那一轮的请求（再问不了）：私聊说一句在忙，不拿它写的话去摘卡（11-21 起没有卡了）
+        style = self.make(writes=["佳树这会儿有点忙，等下再好好回兄长大人"])
+        style._doing_now = lambda: ""
+        ev, out = await self.reply(style, "兄长大人明晚有空哦，找佳树什么事呀")
+        self.assertEqual(out, "佳树这会儿有点忙，等下再好好回兄长大人")
+        self.assertTrue(ev.get_extra("kaju_style_busy"))
+        self.assertEqual(self.bodies[0]["plan"]["要表达的"][0], "解释：这会儿有点忙")
 
     async def test_group_skip(self):
         quiet = json.dumps({**PLAN, "回不回": "不回"}, ensure_ascii=False)
-        style = self.make({"planner_skip": "group"}, writes=["x"])
+        style = self.make({"planner_skip": "group", "replan": False, "action_judge": False}, writes=["x"])
         ev, out = await self.reply(style, quiet, group=True)
         self.assertEqual(out, "")
         self.assertEqual(self.bodies, [])
         self.assertEqual(ev.get_extra("kaju_style_rewritten")["new"], "")
-        style = self.make(writes=["佳树明晚有空"])  # 默认 log：照样回
+        style = self.make({"replan": False, "action_judge": False}, writes=["佳树明晚有空"])  # 默认 log：照样回
         _, out = await self.reply(style, quiet, group=True)
         self.assertEqual(out, "佳树明晚有空")
 
-    async def test_draft_mode_untouched(self):
-        style = self.make({"main_role": "draft"}, writes=["佳树明晚有空哦"])
-        _, out = await self.reply(style, "兄长大人明晚有空哦", brain_turn=False)
-        self.assertEqual(out, "佳树明晚有空哦")
-        self.assertEqual(self.calls, [card.EXTRACT_V4])
-
-    async def test_replyer_api(self):
-        """11-18：rewrite.replyer = api → 大脑的指导交给 API 回复器；回复器没写成就退回本地写手；默认 local 不碰回复器。"""
-        from kaju_core.voice import replyer
-        seen = []
-
-        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
-            seen.append((kind, title, plan["要表达的"], said))
-            return self.api_out, {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
-        real = replyer.reply
-        replyer.reply = fake_reply
-        try:
-            self.api_out = "明晚有空的兄长大人！是有什么事吗？"
-            style = self.make({"replyer": "api"}, writes=["本地写手写的"])
-            _, out = await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertEqual(out, "明晚有空的兄长大人！是有什么事吗？")
-            self.assertEqual(seen[0], ("私聊", "兄长大人", ["回答：明晚有空", "反问：找她什么事"], "兄长大人：明晚有空吗"))
-            self.assertEqual(self.bodies, [])
-            self.assertEqual(self.guards, [brain.reference(PLAN)])  # 核对照旧
-            self.api_out = ""  # 回复器没写成 → 本地写手
-            style = self.make({"replyer": "api"}, writes=["本地写手写的"])
-            _, out = await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertEqual(out, "本地写手写的")
-            seen.clear()
-            style = self.make(writes=["本地写手写的"])  # 默认 local
-            _, out = await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertEqual((out, seen), ("本地写手写的", []))
-            # 11-18 照 anima：心情底色直接给回复器（rewrite.replyer_mood，默认开）
-            plans = []
-
-            async def keep_plan(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
-                plans.append(plan)
-                return "好呀", {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
-            replyer.reply = keep_plan
-            style = self.make({"replyer": "api"}, writes=["本地写手写的"])
-            style._mood_words = lambda **kw: "心情很低落、有点累"
-            await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertEqual(plans[-1].get("底色"), "心情很低落、有点累")
-            self.assertNotIn("底色", PLAN)  # 不改大脑原来那份
-            style = self.make({"replyer": "api", "replyer_mood": False}, writes=["本地写手写的"])
-            style._mood_words = lambda **kw: "心情很低落、有点累"
-            await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertNotIn("底色", plans[-1])
-            style = self.make({"replyer": "api"}, writes=["本地写手写的"])
-            style._mood_words = lambda **kw: ""  # 读不到心情：不加这一行
-            await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertNotIn("底色", plans[-1])
-            self.assertIn("心情底色：心情很低落", replyer.plan_text({"局面": "x", "要表达的": [], "底色": "心情很低落"}))
-            # 11-18 对方需要（anima 的 attunement）：大脑出、回复器看得到；没有就不写这一行
-            p = brain.parse('{"局面": "他考砸了", "要接住的": "他说考得不好", "对方需要": "倾听：他考砸了很沮丧", "要表达的": ["安慰：陪着他"]}')
-            self.assertEqual(p["对方需要"], "倾听：他考砸了很沮丧")
-            self.assertIn("对方需要：倾听：他考砸了很沮丧", replyer.plan_text(p))
-            self.assertNotIn("对方需要", replyer.plan_text({"局面": "x", "要表达的": []}))
-            self.assertIn("对方需要", brain.PLAN_BRAIN)
-            self.assertNotIn("对方需要", brain.PLAN_BRAIN.replace(brain.NEED_PART, "").replace(brain.NEED_KEY, ""))
-            self.assertNotIn("心情底色", replyer.plan_text({"局面": "x", "要表达的": []}))
-        finally:
-            replyer.reply = real
+    async def test_replyer_mood_and_need(self):
+        # 11-18 照 anima：心情底色直接给回复器（rewrite.replyer_mood，默认开）
+        style = self.make(writes=["好呀"])
+        style._mood_words = lambda **kw: "心情很低落、有点累"
+        await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
+        self.assertEqual(self.bodies[-1]["plan"].get("底色"), "心情很低落、有点累")
+        self.assertNotIn("底色", PLAN)  # 不改大脑原来那份
+        style = self.make({"replyer_mood": False}, writes=["好呀"])
+        style._mood_words = lambda **kw: "心情很低落、有点累"
+        await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
+        self.assertNotIn("底色", self.bodies[-1]["plan"])
+        style = self.make(writes=["好呀"])  # 读不到心情：不加这一行
+        await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
+        self.assertNotIn("底色", self.bodies[-1]["plan"])
+        self.assertIn("心情底色：心情很低落", replyer.plan_text({"局面": "x", "要表达的": [], "底色": "心情很低落"}))
+        # 11-18 对方需要（anima 的 attunement）：大脑出、回复器看得到；没有就不写这一行
+        p = brain.parse('{"局面": "他考砸了", "要接住的": "他说考得不好", "对方需要": "倾听：他考砸了很沮丧", "要表达的": ["安慰：陪着他"]}')
+        self.assertEqual(p["对方需要"], "倾听：他考砸了很沮丧")
+        self.assertIn("对方需要：倾听：他考砸了很沮丧", replyer.plan_text(p))
+        self.assertNotIn("对方需要", replyer.plan_text({"局面": "x", "要表达的": []}))
+        self.assertIn("对方需要", brain.PLAN_BRAIN)
+        self.assertNotIn("对方需要", brain.PLAN_BRAIN.replace(brain.NEED_PART, "").replace(brain.NEED_KEY, ""))
+        self.assertNotIn("心情底色", replyer.plan_text({"局面": "x", "要表达的": []}))
 
     async def test_emoji_separate(self):
         """11-18：rewrite.emoji = separate → 表情包说明不给大脑；话写好以后单独挑一类放进 found_emotions；骰子没中不挑。"""
@@ -311,32 +262,42 @@ class Flow(unittest.IsolatedAsyncioTestCase):
             ev4.set_extra(k, v)
         await style4.rewrite_reply(ev4, LLMResponse(json.dumps({**PLAN, "表情包": "nope"}, ensure_ascii=False)))
         self.assertEqual(ev4.get_extra("found_emotions"), ["happy"])  # 不认识的点名 → 照常让表情包那一格挑
+        # 11-21：大脑没给 JSON（直接写了她的话）→ 再问一遍拿到指导 → 写完也照常挑表情包
+        style5 = self.make({"emoji": "separate"}, writes=["兄长大人明天吃够本呀"])
+
+        async def generate5(pid, prompt, system="", timeout=None):
+            if system == "大脑":
+                return json.dumps(PLAN, ensure_ascii=False)
+            return await generate(pid, prompt, system, timeout)
+
+        async def main_id(model="", who=""):
+            return model or "main"
+        style5.body.slot_model, style5.body.generate, style5.body.model_id = slot_model, generate5, main_id
+        ev5 = AstrMessageEvent(text="妈妈！我明天要去吃烤肉自助！")
+        for k, v in (("_ks_rw_ctx", ["兄长大人：妈妈！我明天要去吃烤肉自助！"]), ("_ks_rw_title", "兄长大人"),
+                     ("_ks_brain", True), ("_ks_meme_block", block),
+                     ("_ks_brain_req", SimpleNamespace(system_prompt="大脑", prompt="妈妈！", contexts=[],
+                                                       extra_user_content_parts=[]))):
+            ev5.set_extra(k, v)
+        n = len(asked)
+        await style5.rewrite_reply(ev5, LLMResponse("兄长大人又喊佳树妈妈啦wwww\n这次一定要吃够本"))
+        self.assertEqual(ev5.get_extra("found_emotions"), ["happy"])
+        self.assertEqual(len(asked), n + 1)
+        self.assertIn("她这一句：\n兄长大人明天吃够本呀", asked[-1][2])
 
     async def test_replyer_own_ctx(self):
-        """11-18：回复器有自己那份前文（群聊 50 行 / 私聊 20 行）就整份给它；没有就用写手那份、只看最后 10 行。"""
-        from kaju_core.voice import replyer
-        seen = []
-
-        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
-            seen.append((list(ctx), ctx_lines))
-            return "好的兄长大人", {"model": "测试", "secs": 0.1, "examples": [], "errors": []}
-        real = replyer.reply
-        replyer.reply = fake_reply
-        try:
-            long_lines = [f"20:{i:02d} 群友{i}：第{i}句" for i in range(50)]
-            style = self.make({"replyer": "api"}, writes=["本地"])
-            ev = AstrMessageEvent(text="明晚有空吗")
-            for k, v in (("_ks_rw_ctx", ["兄长大人：明晚有空吗"]), ("_ks_rw_title", "兄长大人"), ("_ks_brain", True),
-                         ("_ks_rw_replyer", long_lines)):
-                ev.set_extra(k, v)
-            await style.rewrite_reply(ev, LLMResponse(json.dumps(PLAN, ensure_ascii=False)))
-            self.assertEqual(seen[0], (long_lines, 0))
-            seen.clear()
-            style = self.make({"replyer": "api"}, writes=["本地"])
-            _, out = await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
-            self.assertEqual(seen[0][1], 10)  # 没有自己那份：用写手那份、最后 10 行
-        finally:
-            replyer.reply = real
+        """11-18：回复器有自己那份前文（群聊 50 行 / 私聊 20 行）就整份给它；没有就用短的那份、只看最后 10 行。"""
+        long_lines = [f"20:{i:02d} 群友{i}：第{i}句" for i in range(50)]
+        style = self.make(writes=["好的兄长大人"])
+        ev = AstrMessageEvent(text="明晚有空吗")
+        for k, v in (("_ks_rw_ctx", ["兄长大人：明晚有空吗"]), ("_ks_rw_title", "兄长大人"), ("_ks_brain", True),
+                     ("_ks_rw_replyer", long_lines)):
+            ev.set_extra(k, v)
+        await style.rewrite_reply(ev, LLMResponse(json.dumps(PLAN, ensure_ascii=False)))
+        self.assertEqual((self.bodies[0]["ctx"], self.bodies[0]["ctx_lines"]), (long_lines, 0))
+        style = self.make(writes=["好的兄长大人"])
+        await self.reply(style, json.dumps(PLAN, ensure_ascii=False))
+        self.assertEqual(self.bodies[0]["ctx_lines"], 10)  # 没有自己那份：用短的、最后 10 行
         u = replyer.user_prompt("群聊", "兄长大人", [f"第{i}行" for i in range(30)], PLAN, ctx_lines=0)
         self.assertIn("第0行", u)
         u = replyer.user_prompt("群聊", "兄长大人", [f"第{i}行" for i in range(30)], PLAN)
@@ -392,7 +353,7 @@ class ReplyerPrompt(unittest.TestCase):
         self.assertEqual([b["line"] for b in replyer.pick(far, [1, 0], k=4, floor=0.5)], ["近的"])
         self.assertEqual(replyer.example_query("[发言人：林一，QQ 111111111] 兄长大人问佳树配置"), "问配置")
         self.assertEqual(replyer.clean("“在的兄长大人！”"), "在的兄长大人！")
-        self.assertEqual(replyer.kind_of("场合：群聊\n对象：女王大人"), "群聊")
+        self.assertFalse(hasattr(replyer, "kind_of") or hasattr(replyer, "plan_from_card"))
 
     def test_group_tone_has_no_clingy_word(self):
         # 11-19：群聊的心情底色不带“想黏人 / 想撒娇”那一维，私聊照旧
@@ -481,7 +442,7 @@ class SinceMaiBot(unittest.TestCase):
 
 class Replan(unittest.IsolatedAsyncioTestCase):
     def make(self, new, answer):
-        style = KajuStyle(Context(), {"rewrite": {**V4, "replyer": "api"}})
+        style = KajuStyle(Context(), {"rewrite": {**V4}})
         self.asked = []
 
         async def model_id(model="", who=""):
@@ -605,10 +566,10 @@ class RichLog(unittest.TestCase):
         self.assertIsNone(ev2.get_extra(dmod.PENDING_CAPS))
 
 
-class JudgeAndLocalOff(unittest.IsolatedAsyncioTestCase):
-    def make(self, cfg, judge_out="", replies=()):
-        style = KajuStyle(Context(), {"rewrite": {**V4, "replyer": "api", **cfg}})
-        self.gen, self.local, self.replies = [], [], list(replies)
+class Judge(unittest.IsolatedAsyncioTestCase):
+    def make(self, cfg, judge_out=""):
+        style = KajuStyle(Context(), {"rewrite": {**V4, **cfg}})
+        self.gen = []
 
         async def model_id(model="", who=""):
             return "fast"
@@ -617,11 +578,6 @@ class JudgeAndLocalOff(unittest.IsolatedAsyncioTestCase):
             self.gen.append(prompt)
             return judge_out
         style.body.model_id, style.body.generate = model_id, generate
-
-        async def local_chat(system, user):
-            self.local.append(user)
-            return "本地写手的话"
-        style._local_chat = local_chat
         return style
 
     async def test_judge_says_no(self):
@@ -654,27 +610,6 @@ class JudgeAndLocalOff(unittest.IsolatedAsyncioTestCase):
         self.assertIn("不装傻", brain.PLAN_BRAIN)
         self.assertIn("拿兄长大人当挡箭牌", brain.PLAN_BRAIN)
 
-    async def test_local_writer_off(self):
-        from kaju_core.voice import replyer
-        seen = []
-
-        async def fake_reply(kind, title, ctx, plan, cfg, said="", log=None, ctx_lines=10, how=""):
-            seen.append(plan)
-            return ("回复器写的", {"errors": []}) if self.replies.pop(0) else ("", {"errors": ["都挂了"]})
-        real = replyer.reply
-        replyer.reply = fake_reply
-        try:
-            card_text = card.render_v4("私聊", "兄长大人", {"局面": "兄长大人在吃饭。要接住的：他问她吃了没", "要说到的": ["回答：吃过了"]})
-            style = self.make({"local_writer": False}, replies=[True, False])
-            self.assertEqual(await style._write_from_card(["兄长大人：吃了没"], card_text, "", "兄长大人"), "回复器写的")
-            self.assertEqual(seen[0]["要表达的"], ["回答：吃过了"])
-            self.assertEqual(seen[0]["要接住的"], "他问她吃了没")
-            self.assertEqual(await style._write_from_card(["兄长大人：吃了没"], card_text, "", "兄长大人"), "")
-            self.assertEqual(self.local, [])  # 本地写手一次也没叫
-            on = self.make({}, replies=[])
-            self.assertEqual(await on._write_from_card(["兄长大人：吃了没"], card_text, "", "兄长大人"), "本地写手的话")
-        finally:
-            replyer.reply = real
 
 
 if __name__ == "__main__":
