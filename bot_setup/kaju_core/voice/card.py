@@ -6,6 +6,23 @@
 import json
 import re
 
+
+def loads_obj(out: str):
+    """模型回的文字里抠出 {…} 解析；中文里夹了英文引号（11-21：局面写成 喊了一声"妈妈"，整张卡作废、她没回）
+    就换成中文引号再试一次（和 brain.parse 一样）。解析不了返回 None。"""
+    m = re.search(r"\{.*\}", out or "", re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except ValueError:
+        pass
+    try:
+        return json.loads(re.sub(r'([一-鿿])"([^"\n,:{}\[\]]{1,30})"(?=[一-鿿，。、！？,])', r"\1“\2”", m.group(0)))
+    except ValueError:
+        return None
+
+
 # 第一、二版卡（v1 EXTRACT / v2 EXTRACT_V2(_LIVE)、WRITE_SYSTEM、parse / render / write_prompt / sane / copy_ratio）11-20 删了：
 # 4B 线 11-18 已删、线上只剩第四版（大脑解析不了时摘卡），这些没地方用了。
 
@@ -79,11 +96,7 @@ def recheck_prompt_v4(ctx: list[str], draft: str, kind: str, to: str, card_text:
 def parse_recheck_v4(out: str) -> tuple[str, dict | None]:
     """重新出卡的回答 → ("new", guide) 有一条错、给了新卡 / ("keep", None) 条条都对 / ("bad", None) 看不懂。
     （先前只问“材料有没有错”，Gemini 三条都答没错，连把叮嘱抽成“佳树吃过午饭了”的那张也是，所以改成逐条找草稿原句。）"""
-    m = re.search(r"\{.*\}", out or "", re.S)
-    try:
-        v = json.loads(m.group(0)) if m else None
-    except ValueError:
-        v = None
+    v = loads_obj(out)
     if not isinstance(v, dict):
         return "bad", None
     rows = v.get("逐条")
@@ -100,11 +113,7 @@ def parse_recheck_v4(out: str) -> tuple[str, dict | None]:
 
 def parse_v4(out: str) -> dict | None:
     """Gemini 的 JSON → {"局面", "要说到的"}；局面空或要说到的空都算没出好（返回 None）。"""
-    m = re.search(r"\{.*\}", out or "", re.S)
-    try:
-        v = json.loads(m.group(0)) if m else None
-    except ValueError:
-        return None
+    v = loads_obj(out)
     if not isinstance(v, dict) or not str(v.get("局面") or "").strip():
         return None
     pts = v.get("要说到的")
