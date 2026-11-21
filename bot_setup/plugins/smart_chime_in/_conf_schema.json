@@ -95,6 +95,26 @@
     "type": "float",
     "default": 12
   },
+  "call_only_notes": {
+    "description": "只叫了她一声（名字 / @她 / 在吗）时，告诉她要说的事在同一个人紧挨着的前几句或后几句里",
+    "type": "bool",
+    "default": true
+  },
+  "call_lookback_seconds": {
+    "description": "只叫了她一声时，往前看叫她的人多少秒内自己说的话（不早于她上一条）",
+    "type": "float",
+    "default": 90
+  },
+  "call_first_quiet_seconds": {
+    "description": "先叫名字、前面没说事：等这个人安静几秒再回（让 TA 把要说的打完）",
+    "type": "float",
+    "default": 8
+  },
+  "call_first_max_wait": {
+    "description": "先叫名字、前面没说事：最多等几秒",
+    "type": "float",
+    "default": 20
+  },
   "late_messages": {
     "description": "叫她之后、她开始回复之前新来的群消息，也放进这一轮给她看（一次看完整段再回）",
     "type": "bool",

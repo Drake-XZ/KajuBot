@@ -35,6 +35,9 @@
      交给叫她那次一起回（提醒她前面那条也还没回）。
    - 接着聊在等的时候，同一个人还有消息在路上（到了但还在等图片描述，比如表情包）→ 等它到了一起看，
      不然先回"0.11"、再单独回那张竖大拇指的表情包。
+9. 只叫了她一声（2026-11-22，1.14.0；名字 / @她 / 在吗 / 你看，没别的内容）：事在同一个人紧挨着的前几句（先说事再叫她）
+   或后几句（先叫她再说事）里，回之前告诉她是哪几句；先叫名字、前面又没说什么的，多等一会儿让 TA 把话打完
+   （call_first_quiet_seconds 8 秒，最多 call_first_max_wait 20 秒）。妖妖群女王大人“不是我是我朋友”→“小佳树”，她只回了“叫佳树呀？”。
 
 需要把内置的 主动回复(active_reply) 关掉，群聊上下文(group_icl) 保持开启。
 """
@@ -137,6 +140,17 @@ UNANSWERED_NOTE = (
     "\n\n【这条消息】{name} 叫你之前还发了 {texts}（在上面的群聊记录里），你还没回：和这条是连着的一件事，"
     "合在一起看，回一次就好，别分成两件事各说一遍。"
 )
+# 只叫了她一声（名字 / @她 / 在吗），事在同一个人紧挨着的前几句或后几句里（2026-11-21 妖妖群：女王大人
+# “不是我是我朋友”→“小佳树”，她只回了“女王大人叫佳树呀？”）
+CALL_ONLY = re.compile(r"小?佳树(酱|妹妹)?|嘉树|家树|树树|在吗|在么|在嘛|在不在|你看|快看|看看|看下|[\s\W_呀啊呢嘛吧哦喔噢诶欸哎]")
+CALL_BEFORE_NOTE = (
+    "\n\n【这条消息】{name} 这条只是叫了你一声（「{call}」），要跟你说的是 TA 紧挨着前面发的 {texts}（在上面的群聊记录里）："
+    "先说事、再叫你名字，就是要你看那几句。照那几句回；只回“叫佳树吗 / 怎么啦”等于没看懂。"
+)
+CALL_AFTER_NOTE = (
+    "\n\n【这条消息】{name} 先叫了你一声（「{call}」），要说的事在 TA 接着发的 {texts} 里："
+    "照那几句回；只回“叫佳树吗 / 怎么啦”等于没看懂。"
+)
 UNSEEN_NOTE = (
     "\n\n【这条消息】{name} 发这些的时候，你上一条回给 TA 的话还没发出去（你们是同时在打字），TA 多半还没看到："
     "你上一条已经说过的意思别再说一遍，接着回应新说的就好。"
@@ -148,6 +162,13 @@ def _wake_text(event: AstrMessageEvent) -> str:
     if not text:
         text = "[图片]" if any(isinstance(c, Image) for c in event.get_messages()) else "（叫了你一声）"
     return text[:40] + ("…" if len(text) > 40 else "")
+
+
+def _call_only(event: AstrMessageEvent) -> bool:
+    """这条只是叫她（名字 / @她 / 在吗 / 你看），没有别的内容：带图、引用了消息的不算（图和引用就是内容）。"""
+    if any(isinstance(c, (Image, Reply)) for c in event.get_messages()):
+        return False
+    return not CALL_ONLY.sub("", _plain_text(event))
 
 
 LATE_NOTE = (
@@ -185,7 +206,7 @@ def _plain_text(event: AstrMessageEvent) -> str:
     return "".join(c.text for c in event.get_messages() if isinstance(c, Plain)).strip()
 
 
-@register(PLUGIN_NAME, "dsh", "聪明插话：等一波聊完再按内容决定要不要插话，插不上话就不说", "1.12.0")
+@register(PLUGIN_NAME, "dsh", "聪明插话：等一波聊完再按内容决定要不要插话，插不上话就不说", "1.14.0")
 class SmartChimeIn(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -268,18 +289,24 @@ class SmartChimeIn(Star):
         token = object()
         now = time.time()
         st.wake_pending[token] = now
+        call = self._c("call_only_notes", True) and _call_only(event)
         st.wake_info[token] = {"event": event, "sender": sender, "name": event.get_sender_name() or "群友",
-                               "text": _wake_text(event), "t": now, "t0": now, "earlier": []}
+                               "text": _wake_text(event), "t": now, "t0": now, "earlier": [], "call": call}
         event.set_extra("_chime_wake_token", token)
         quiet = self._c("wake_quiet_seconds", 3.0)
         cap = self._c("wake_max_wait", 12.0)
+        step = min(0.5, quiet)
+        if call and not self._own_lines(st, sender, 0.0, now):
+            # 先叫名字、事还在打：多等一会儿（打一句话常常要五六秒以上）
+            quiet = max(quiet, self._c("call_first_quiet_seconds", 8.0))
+            cap = max(cap, self._c("call_first_max_wait", 20.0))
         if not self._c("wake_hold", True) or quiet <= 0:
             return
         st.wake_tokens[sender] = token
         start = time.time()
         try:
             while True:
-                await asyncio.sleep(min(0.5, quiet))
+                await asyncio.sleep(step)
                 if st.wake_tokens.get(sender) is not token:
                     logger.info(f"smart_chime_in: {event.get_sender_name()} 又叫了她一次，只回最新那次")
                     self._pass_on(st, token, st.wake_info.get(st.wake_tokens.get(sender)))
@@ -324,6 +351,22 @@ class SmartChimeIn(Star):
             if gone:
                 st.wake_info.pop(tok, None)
         return st.wake_info
+
+    def _own_lines(self, st: GroupState, sender: str, start: float, end: float) -> list[str]:
+        """sender 自己在 (start, end] 之间说的话（没 @ / 引用别人的），最多 3 句；start=0 表示往前看
+        call_lookback_seconds 秒、但不早于她上一条发出去的时候（那之前的她已经看过、回过了）。"""
+        if not start:
+            start = max(end - self._c("call_lookback_seconds", 90.0), st.reply_end[0] or 0.0)
+        out = []
+        for m in st.recent:
+            if str(m.get("sender") or "") != sender or not (start < m["t"] <= end):
+                continue
+            if m.get("at_other") or m.get("quote_other"):
+                continue
+            shown = m.get("show") or m.get("text") or ""
+            if shown:
+                out.append(shown[:40] + ("…" if len(shown) > 40 else ""))
+        return out[-3:]
 
     @staticmethod
     def _unseen(st: GroupState, sender: str, t0: float) -> bool:
@@ -772,6 +815,15 @@ class SmartChimeIn(Star):
             if info.get("unanswered"):
                 texts = "、".join(f"「{t}」" for t in info["unanswered"][-3:])
                 notes += UNANSWERED_NOTE.format(name=info["name"], texts=texts)
+            call_side = ""
+            if info.get("call") and not info["earlier"] and not info.get("unanswered"):
+                before = self._own_lines(st, info["sender"], 0.0, info["t0"])
+                after = [] if before else self._own_lines(st, info["sender"], info["t0"], time.time())
+                if before or after:
+                    call_side = "前面" if before else "后面"
+                    texts = "、".join(f"「{t}」" for t in (before or after))
+                    notes += (CALL_BEFORE_NOTE if before else CALL_AFTER_NOTE).format(
+                        name=info["name"], call=info["text"], texts=texts)
             if others:
                 notes += OTHERS_NOTE.format(names="、".join(others), name=info["name"])
             if unseen:
@@ -784,6 +836,7 @@ class SmartChimeIn(Star):
             if notes:
                 req.system_prompt = (req.system_prompt or "") + notes
                 why = [x for x, on in (("前面也叫过", info["earlier"]), ("前面那条还没回", info.get("unanswered")),
+                                       (f"只叫了一声、事在{call_side}几句", call_side),
                                        ("别人在排队", others),
                                        ("TA 没看到上一条", unseen), ("排队时也有人接着说", info.get("also")),
                                        ("她上一条之后也有人在跟她说：" + "、".join(n for n, _ in waiting), waiting)) if on]

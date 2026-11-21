@@ -2323,6 +2323,84 @@ async def chime_waiting_tests():
 asyncio.run(chime_waiting_tests())
 
 
+async def chime_call_only_tests():
+    """2026-11-21 妖妖群：女王大人“不是我是我朋友”→“小佳树”，她只回“女王大人叫佳树呀？”。
+    只叫了她一声时，告诉她事在同一个人紧挨着的前几句 / 后几句里；先叫名字的多等一会儿。"""
+    import time as _time
+    from astrbot.api.message_components import At, Image, Plain
+
+    sci = importlib.import_module("smart_chime_in.main")
+    G, QUEEN, BRO, ME = "222222222", "333333333", "111111111", "999"
+    UMO = f"qq:GroupMessage:{G}"
+
+    def msg(sender, name, text, wake=False, comps=None):
+        e = AstrMessageEvent(sender=sender, group=G, text=text, name=name, messages=comps or [Plain(text)])
+        e.is_at_or_wake_command = wake
+        return e
+
+    def plugin(**over):
+        cfg = {"quiet_seconds": 0.02, "follow_quiet_seconds": 0.02, "base_chance": 0.0, "question_bonus": 0.0,
+               "topic_bonus": 0.0, "lively_bonus": 0.0, "wake_quiet_seconds": 0.02, "wake_max_wait": 0.2,
+               "call_first_quiet_seconds": 0.05, "call_first_max_wait": 0.3, "follow_enable": False}
+        cfg.update(over)
+        return sci.SmartChimeIn(Context(), cfg)
+
+    async def run(p, e):
+        return [x async for x in p.maybe_chime_in(e)]
+
+    for text, want in (("小佳树", True), ("佳树？", True), ("佳树在吗", True), ("@佳树 你看", True),
+                       ("佳树你说呢", False), ("不是我是我朋友", False)):
+        expect(f"call only: {text}", sci._call_only(msg(QUEEN, "来点作用吧", text)), want)
+    expect("call only: @ alone", sci._call_only(msg(QUEEN, "来点作用吧", "", comps=[At(qq=ME)])), True)
+    expect("call only: name + image is content",
+           sci._call_only(msg(QUEEN, "来点作用吧", "佳树", comps=[Plain("佳树"), Image(file="x.jpg")])), False)
+
+    # 先说事、再叫名字：提醒里有前面那句
+    p = plugin()
+    p._groups[UMO].reply_end = (_time.time(), QUEEN)
+    await asyncio.sleep(0.01)
+    await run(p, msg(BRO, "林一", "[图片]"))
+    await run(p, msg(QUEEN, "来点作用吧", "不是我是我朋友"))
+    w = msg(QUEEN, "来点作用吧", "小佳树", wake=True)
+    await run(p, w)
+    req = ProviderRequest("SYS")
+    await p.wake_catch_up(w, req)
+    expect("call before: earlier line named", ("只是叫了你一声（「小佳树」）" in req.system_prompt,
+                                              "「不是我是我朋友」" in req.system_prompt, "前面发的 「[图片]" in req.system_prompt),
+           (True, True, False))
+    # 她上一条之前说的不算（她已经回过了）
+    p = plugin()
+    await run(p, msg(QUEEN, "来点作用吧", "被帽子叔叔警告了"))
+    await asyncio.sleep(0.01)
+    p._groups[UMO].reply_end = (_time.time(), QUEEN)
+    w = msg(QUEEN, "来点作用吧", "小佳树", wake=True)
+    t0 = _time.time()
+    task = asyncio.ensure_future(run(p, w))
+    await asyncio.sleep(0.02)
+    await run(p, msg(QUEEN, "来点作用吧", "你看我朋友这事离谱不"))
+    await task
+    expect("call first: waited for the follow-up", _time.time() - t0 >= 0.05, True)
+    req = ProviderRequest("SYS")
+    await p.wake_catch_up(w, req)
+    expect("call first: later line named, old line not",
+           ("先叫了你一声（「小佳树」）" in req.system_prompt, "「你看我朋友这事离谱不」" in req.system_prompt,
+            "被帽子叔叔" in req.system_prompt), (True, True, False))
+    # 叫名字带了内容：不加；关掉开关也不加
+    for over, text in (({}, "佳树你说呢"), ({"call_only_notes": False}, "小佳树")):
+        p = plugin(**over)
+        p._groups[UMO].reply_end = (_time.time(), QUEEN)
+        await asyncio.sleep(0.01)
+        await run(p, msg(QUEEN, "来点作用吧", "不是我是我朋友"))
+        w = msg(QUEEN, "来点作用吧", text, wake=True)
+        await run(p, w)
+        req = ProviderRequest("SYS")
+        await p.wake_catch_up(w, req)
+        expect(f"call only note absent: {text} {over}", "叫了你一声" in req.system_prompt, False)
+
+
+asyncio.run(chime_call_only_tests())
+
+
 async def long_post_and_stale_tests():
     """2026-11-13：555 贴几千字更新日志 @全体成员 她插了话；三天前和 555 争“食指”的对话还在群聊上下文里。"""
     import datetime as _dt
