@@ -741,6 +741,16 @@
         "description": "每隔几分钟用“回一个字”探一下冷却中的 / 好久没用的账号",
         "default": 10
       },
+      "attempt_mult": {
+        "type": "float",
+        "description": "后备链上不是最后一家的，最多等 预算×这个 秒就换下一家（0 = 不限时，等它自己超时）",
+        "default": 2.0
+      },
+      "attempt_min": {
+        "type": "float",
+        "description": "上面那个限时至少这么多秒",
+        "default": 30
+      },
       "log_choice": {
         "type": "bool",
         "description": "每条消息在日志里写一行挑了谁",

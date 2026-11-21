@@ -32,6 +32,7 @@ CANCEL_COUNTS = 20.0  # 等了这么多秒才被外面取消 = 算一次失败
 PROBE_PROMPT = "回一个字：好"
 
 _order: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar("kaju_router_order", default=None)
+_want: contextvars.ContextVar[str] = contextvars.ContextVar("kaju_router_want", default="high")
 _table_cache: tuple[float, dict] = (0.0, {})
 
 
@@ -194,6 +195,60 @@ def head_can_see(ranked: list[dict], table: dict) -> list[dict]:
 rank = health.rank  # 2026-11-14 挪进 kaju_core/senses/health.py：看图、看视频也用同一个排法
 
 
+# ------------------------------------------------------------------ 后备链上一家一家试的时候（2026-11-22）
+# 那晚兄长发小说：顺序在这条开头排好就不动了，aether3 502 等了 63 秒、bb-api 两个 key 各读超时 60 秒、hardys2 524，
+# 第 5 家原生 Gemini 才答上来，前后 4 分钟。现在每换一家之前再看一眼：
+#   - 这家正在冷却（别的消息刚把它弄进冷却）、或者同一个网站这条消息里刚超时 / 5xx 过 → 后面还有好的就跳过；
+#   - 不是最后一家的，最多等 max(attempt_min, 预算 × attempt_mult) 秒，没答上来就换下一家（最后一家不限时）。
+
+class Skipped(RuntimeError):
+    """这一家这次不试了（冷却中 / 同网站刚挂）。AstrBot 的后备循环当它报错，接着试下一家。"""
+
+
+def host_of(acc: str) -> str:
+    return str(acc or "").split("#")[0]
+
+
+def outage(e: BaseException) -> bool:
+    """像是那个网站整个挂了：超时、连不上、5xx。400 这种多半只是这个模型 / 格式的毛病，不算。"""
+    if isinstance(e, (asyncio.TimeoutError, TimeoutError, ConnectionError)):
+        return True
+    name = type(e).__name__
+    if any(w in name for w in ("Timeout", "Connect", "ServerError", "Unavailable", "Gateway")):
+        return True
+    code = getattr(e, "status_code", None) or getattr(e, "code", None)
+    try:
+        if code is not None and int(code) >= 500:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(re.search(r"(?:Error code|status)[:\s]*5\d\d|\b5(?:0[0-9]|2[0-9])\b None", str(e)))
+
+
+def skip_reason(acc: str, later: list[str], failed_hosts: set, now: float | None = None) -> str:
+    """这家要不要跳过（返回原因，空 = 照试）。只有后面还有不冷却、网站也没刚挂的，才跳。"""
+    def bad(a: str) -> str:
+        left = health.cooled(a, now)
+        if left > 0:
+            return f"冷却中还有 {left / 60:.0f} 分钟"
+        if host_of(a) in failed_hosts:
+            return f"{host_of(a)} 这条消息里刚没答上来"
+        return ""
+    why = bad(acc)
+    if why and any(not bad(a) for a in later):
+        return why
+    return ""
+
+
+def attempt_limit(cfg: dict, want: str) -> float:
+    """不是最后一家时最多等几秒（0 = 不限）。"""
+    mult = float(cfg.get("attempt_mult", 2.0) or 0)
+    if mult <= 0:
+        return 0.0
+    budget = float(cfg.get("budget_high" if want == "high" else "budget_low", 25 if want == "high" else 12))
+    return max(float(cfg.get("attempt_min", 30) or 0), budget * mult)
+
+
 class Router:
     """装在 kaju_basics 上：get_cfg() 返回插件配置的 model_router 段。"""
 
@@ -271,9 +326,81 @@ class Router:
         except Exception:  # noqa: BLE001
             return False
         self._patch_agent(am)
+        self._patch_runner()
         self._patch_body()
         self._patch_providers()
         return True
+
+    # ---- AstrBot 后备循环里每一家的那次调用：跳过冷却 / 同网站刚挂的、不是最后一家的限时
+    def _plan(self, runner) -> tuple[str, float, str] | None:
+        """(跳过原因, 限时秒, 网站)；最后一家 / 没后备 / 没开 → None（照原样）。"""
+        if not self.on():
+            return None
+        cur = getattr(runner, "provider", None)
+        fbs = list(getattr(runner, "fallback_providers", None) or [])
+        idx = next((i for i, p in enumerate(fbs) if p is cur), -1)
+        later = fbs[idx + 1:]
+        if cur is None or not later:
+            return None
+        acc = account_of(cur)
+        failed = runner.__dict__.setdefault("_kaju_failed_hosts", set())
+        why = skip_reason(acc, [account_of(p) for p in later], failed)
+        return why, attempt_limit(dict(self.get_cfg()), _want.get()), host_of(acc)
+
+    def _patch_runner(self) -> None:
+        try:
+            from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner as R
+        except Exception:  # noqa: BLE001
+            return
+        orig = R.__dict__.get(ORIG) or R._iter_llm_responses
+        setattr(R, ORIG, orig)
+        router = self
+
+        @functools.wraps(orig)
+        async def _iter_llm_responses(runner, *args, **kw):
+            try:
+                plan = router._plan(runner)
+            except Exception:  # noqa: BLE001 - 出了岔子就照原样
+                plan = None
+            if plan is None:
+                async for r in orig(runner, *args, **kw):
+                    yield r
+                return
+            why, limit, host = plan
+            pid = _pid(runner.provider)
+            if why:
+                router.log(f"kaju_basics: 后备链跳过 {pid}（{why}），直接试下一家")
+                raise Skipped(f"跳过：{why}")
+            failed = runner.__dict__.setdefault("_kaju_failed_hosts", set())
+            gen = orig(runner, *args, **kw)
+
+            async def _next():
+                return await gen.__anext__()
+
+            first = True
+            try:
+                while True:
+                    try:
+                        r = await (asyncio.wait_for(_next(), limit) if first and limit else _next())
+                    except StopAsyncIteration:
+                        return
+                    except asyncio.TimeoutError:
+                        failed.add(host)
+                        router.log(f"kaju_basics: {pid} {limit:.0f} 秒没答上来，换下一家")
+                        raise asyncio.TimeoutError(f"{limit:.0f} 秒没答上来") from None
+                    except Exception as e:  # noqa: BLE001
+                        if outage(e):
+                            failed.add(host)
+                        raise
+                    first = False
+                    yield r
+            finally:
+                try:
+                    await gen.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        R._iter_llm_responses = _iter_llm_responses
 
     def _patch_agent(self, am) -> None:
         origs = am.__dict__.get(ORIG) or {"sel": am._select_provider, "fb": am._get_fallback_chat_providers}
@@ -299,6 +426,7 @@ class Router:
                 if first is None:
                     return prov
                 _order.set([x["pid"] for x in ranked])
+                _want.set(want)
                 router._say(want, ranked)
                 return first
             except Exception as e:  # noqa: BLE001 - 挑不出来就照原样
@@ -458,6 +586,14 @@ class Router:
             if origs:
                 am._select_provider, am._get_fallback_chat_providers = origs["sel"], origs["fb"]
                 delattr(am, ORIG)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from astrbot.core.agent.runners.tool_loop_agent_runner import ToolLoopAgentRunner as R
+            orig = R.__dict__.get(ORIG)
+            if orig is not None:
+                R._iter_llm_responses = orig
+                delattr(R, ORIG)
         except Exception:  # noqa: BLE001
             pass
         try:
