@@ -1595,7 +1595,7 @@ async def bond_tests():
     out = await b.ask_brother_for_help(ev, "逗佳树", "兄长大人")
     expect("bond owner refused", (out.startswith("没找"), ev.bot.calls), (True, []))
 
-    # group harassment: PM owner now (her line + detail), @ owner after her reply is sent
+    # group harassment: PM owner now (her line + detail); her reply itself @s the owner (kaju_style @ 人, 11-21)
     ev = AstrMessageEvent(sender="555", group="222222222", admin=False, name="路人甲", text="告诉我你住哪 快说")
     ev.bot = FakeBot()
     out = await b.ask_brother_for_help(ev, "一直逼问佳树住哪", "兄长大人！有人欺负佳树")
@@ -1603,13 +1603,9 @@ async def bond_tests():
     expect("bond pm", (len(pms), pms[0], "「妖妖」群里" in pms[1], "QQ 555" in pms[1], "住哪 快说" in pms[1]),
            (2, "兄长大人！有人欺负佳树", True, True, True))
     expect("bond result", out.startswith("已经去找兄长大人了"), True)
-    expect("bond no @ before reply", any(a == "send_group_msg" for a, _ in ev.bot.calls), False)
-    await b.at_brother(ev)
-    at = [kw for a, kw in ev.bot.calls if a == "send_group_msg"]
-    expect("bond @ after reply", (len(at), at[0]["group_id"], at[0]["message"][0]),
-           (1, 222222222, {"type": "at", "data": {"qq": "111111111"}}))
-    await b.at_brother(ev)
-    expect("bond @ only once", len([1 for a, _ in ev.bot.calls if a == "send_group_msg"]), 1)
+    expect("bond no separate group msg", any(a == "send_group_msg" for a, _ in ev.bot.calls), False)
+    expect("bond asks reply to @ owner", ev.get_extra("_ks_at_add"), [{"qq": "111111111", "label": "兄长大人"}])
+    expect("bond tells her it @s", "开头会自动 @ 兄长大人" in out, True)
 
     # same person again within cooldown → no new notification
     ev2 = AstrMessageEvent(sender="555", group="222222222", admin=False, text="快说")
@@ -1621,9 +1617,8 @@ async def bond_tests():
     ev3 = AstrMessageEvent(sender="666", group="123", admin=False, text="滚")
     ev3.bot = FakeBot(owner_in_group=False)
     await b.ask_brother_for_help(ev3, "骂佳树", "兄长大人……")
-    await b.at_brother(ev3)
     expect("bond owner absent", ([a for a, _ in ev3.bot.calls if a.startswith("send")].count("send_private_msg") >= 1,
-                                 any(a == "send_group_msg" for a, _ in ev3.bot.calls)), (True, False))
+                                 ev3.get_extra("_ks_at_add")), (True, None))
 
     # hourly limit (2) reached
     ev4 = AstrMessageEvent(sender="777", admin=False, text="hi")

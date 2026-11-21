@@ -23,7 +23,7 @@ from kaju_core.life.mind import LifeMind  # noqa: E402
 from kaju_astr import AstrBody, plugin_log  # noqa: E402
 
 
-@register(PLUGIN_NAME, "dsh", "佳树的生活：每天的小日程 + 日记/周记/月记，聊天时记得最近发生的事；想起关于自己的事", "1.2.0")
+@register(PLUGIN_NAME, "dsh", "佳树的生活：每天的小日程 + 日记/周记/月记，聊天时记得最近发生的事；想起关于自己的事", "1.2.1")
 class KajuLife(LifeMind, Star):
     def __init__(self, context: Context, config: dict | None = None):
         Star.__init__(self, context)

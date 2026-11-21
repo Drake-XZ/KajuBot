@@ -446,6 +446,11 @@ class Diary:
         gid = str(event.get_group_id() or "")
         sid = str(event.get_sender_id() or "")
         chat = f"g{gid}" if gid else f"p{sid}"
+        try:  # 这条开头 @ 了谁（kaju_style _note_at，11-21）：照别人 @ 人的样子记“@名字(QQ) ”
+            ats = (event.get_extra("_ks_at") or []) if gid else []
+            text = "".join(f"@{a.get('name') or a['qq']}({a['qq']}) " for a in ats) + text
+        except Exception:  # noqa: BLE001
+            pass
         self._append_log({"c": chat, "u": "self", "n": "佳树", "x": text[:300]})
         try:  # 她这句跟着发的表情包（meme_manager 在文字后面补发）：别人的表情会记，她自己的也记上（11-20）
             picked = event.get_extra("found_emotions") or []

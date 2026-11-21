@@ -67,6 +67,8 @@ def plan_text(plan: dict) -> str:
     lines.append("要表达的：" + ("；".join(plan.get("要表达的") or []) or "（随口接一句）"))
     if plan.get("背景"):
         lines.append("背景：" + "；".join(plan["背景"]))
+    if plan.get("@"):  # 11-21：这条开头真的会 @ 那个人（发出去时自动加），话可以直接对他说
+        lines.append("这条会 @：" + "、".join(plan["@"]) + "（发出去时自动加在开头，你不用写“@”）")
     if plan.get("情绪"):
         lines.append(f"情绪：{plan['情绪']}")
     if plan.get("底色"):  # 心情底色（kaju_heart，2026-11-18 照 anima-brain：状态直接交给写话的模型）；“情绪”是这一刻对这句话的
@@ -256,7 +258,7 @@ async def reply(kind: str, title: str, ctx: list[str], plan: dict, cfg: dict, sa
 
 # 回复器写出来的话发之前看一眼（原来第四版卡那边的 sane_v4）：空的、漏出指导的格式、写出参照里没有的繁体字、卡死打转，
 # 都不算写好（交给“再写一次”）。只判这一遍要不要，不改她的字；不按字数卡长短（兄长：不要强行限制她的字数）。
-LEAK = re.compile(r"^(场合|对象|局面|要接住的|要表达的|对方需要|背景|情绪|心情底色|指导|聊天)：", re.M)
+LEAK = re.compile(r"^(场合|对象|局面|要接住的|要表达的|对方需要|背景|情绪|心情底色|指导|聊天|这条会 @)：", re.M)
 
 # 只在繁体里出现的常用字（简体不用）。写出原稿 / 指导里没有的繁体字（2026-11-09 "今天也要上課"）→ 这一遍不算写好
 TRAD = set(

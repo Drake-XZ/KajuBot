@@ -27,7 +27,7 @@
   同一类东西在不同的日子里反复打动她，就长成她自己的"喜欢"（反复不舒服就是"不太喜欢"），
   提示里有一张她自己长出来的喜好清单，聊到时会来劲、偶尔想要更多。同样来自「小凌的创造者」（触受爱取有）。
 - 最依赖的人（bond.py，原 kaju_bond 插件）：每轮告诉她最依赖兄长大人本人、这次说话的是不是他；
-  被骚扰时用 ask_brother_for_help 去找兄长大人（私聊告诉他，群里回完对方再 @ 他）。
+  被骚扰时用 ask_brother_for_help 去找兄长大人（私聊告诉他；在群里她回对方的那条开头 @ 他，走 kaju_style 的 @ 人）。
 - 兄长大人本人是谁：读称呼簿（address_book）的 owner_qq，这里不另配。
 
 思路参考抖音「玄清」的 WhaleGirl V5.0 图文笔记（激素基线回归、事件扰动、单轮钳位、离线时间压缩、
@@ -845,9 +845,6 @@ class HeartMind:
             message_to_brother(string): 你对兄长大人说的话，用佳树的口吻，短一点（一两句），比如"兄长大人！有人一直欺负佳树，快来帮帮佳树嘛"
         """
         return await self.bond.ask(event, what_happened, message_to_brother)
-
-    async def at_brother(self, event: Turn):
-        await self.bond.at_brother(event)
 
     # ------------------------------------------------------------ appraisal
     async def on_done(self, event: Turn, run_context, response: Answer):

@@ -612,5 +612,129 @@ class Judge(unittest.IsolatedAsyncioTestCase):
 
 
 
+
+class GroupAt(unittest.IsolatedAsyncioTestCase):
+    """11-21：群里大脑写 "@"，这条开头真的 @ 那个人（小王“问问你家主人晚上打不打游戏”，她答应了却没叫兄长）。"""
+    RECS = [{"u": "487", "n": "阿川", "x": "明天吃烤肉"},
+            {"u": "131", "n": "小王", "x": "问问你家主人晚上打不打游戏"},
+            {"u": "277", "n": "来点作用吧", "x": "zzb @555(3000001) 人呢"},
+            {"u": "273", "n": "哆啦a梦", "x": "预训练知识"},
+            {"u": "self", "n": "佳树", "x": "嗯嗯"}]
+    TITLES = {"487": "兄长大人", "131": "小王学长", "277": "女王大人", "273": "哆啦a梦学姐", "3000001": "555学长"}
+
+    def who(self, qq, name):
+        return self.TITLES.get(qq, name)
+
+    def test_parse(self):
+        p = brain.parse(json.dumps({**PLAN, "@": ["@兄长大人", "无"]}, ensure_ascii=False))
+        self.assertEqual(p["@"], ["兄长大人"])
+        self.assertNotIn("@", brain.parse(json.dumps(PLAN, ensure_ascii=False)))
+        self.assertEqual(brain.parse(json.dumps({**PLAN, "@": "小王"}, ensure_ascii=False))["@"], ["小王"])
+        self.assertIn("这条开头 @ 了：兄长大人", brain.reference({**PLAN, "@": ["兄长大人"]}))
+        self.assertIn("这条会 @：兄长大人", replyer.plan_text({**PLAN, "@": ["兄长大人"]}))
+        self.assertIn('"@": ["名字"]', brain.live_system())
+
+    def test_targets(self):
+        t = lambda names, owner="487": brain.at_targets(names, self.RECS, owner, self.who)  # noqa: E731
+        self.assertEqual(t(["兄长大人"]), [("487", "阿川")])
+        self.assertEqual(t(["你家主人"]), [("487", "阿川")])
+        self.assertEqual(t(["兄长大人"], owner="999"), [])  # 兄长不在这个群的记录里：不 @
+        self.assertEqual(t(["小王学长"]), [("131", "小王")])
+        self.assertEqual(t(["小王"]), [("131", "小王")])
+        self.assertEqual(t(["女王大人"]), [("277", "来点作用吧")])
+        self.assertEqual(t(["555"]), [("3000001", "555")])  # 只被别人 @ 过、没说过话的也认
+        self.assertEqual(t(["哆啦a梦学姐", "哆啦a梦", "兄长", "小王"]), [("273", "哆啦a梦"), ("487", "阿川")])  # 去重、最多两个
+        self.assertEqual(t(["小明"]), [])
+        self.assertEqual(t(["佳树"]), [])
+        recs = self.RECS + [{"u": "132", "n": "小王小号", "x": "1"}]
+        self.assertEqual(brain.at_targets(["王家"], recs, "487", self.who), [])  # 对上好几个人：不猜
+
+    async def test_flow_and_chain(self):
+        from astrbot.api.message_components import At, Plain
+        from kaju_core import people
+        flow = Flow()
+        flow.addCleanup = self.addCleanup
+        style = flow.make({"planner_skip": "group", "replan": False, "action_judge": False},
+                          writes=["兄长大人，小王学长问你今晚打不打游戏～"])
+        recs = self.RECS
+        diary = SimpleNamespace(recent=lambda chat, n: recs)
+        real_find = style.body.find
+        style.body.find = lambda attr: SimpleNamespace(diary=diary) if attr == "log_own" else real_find(attr)
+        style._address_of = self.who
+        real_owner = people.owner
+        people.owner = lambda: "487"
+        self.addCleanup(setattr, people, "owner", real_owner)
+        plan = {**PLAN, "局面": "小王问兄长大人晚上打不打游戏", "要表达的": ["转达：小王问他晚上打不打游戏"], "@": ["兄长大人"]}
+        ev, out = await flow.reply(style, json.dumps(plan, ensure_ascii=False), group=True)
+        self.assertEqual(out, "兄长大人，小王学长问你今晚打不打游戏～")
+        self.assertEqual(flow.bodies[0]["plan"]["@"], ["兄长大人"])
+        self.assertEqual(ev.get_extra("_ks_at"), [{"qq": "487", "name": "阿川"}])
+        self.assertTrue(ev.get_extra("kaju_style_rewritten")["new"].startswith("@阿川 兄长大人，"))
+        Reply = type("Reply", (), {})
+        ev.set_result(SimpleNamespace(chain=[Reply(), Plain(out)]))
+        await style.add_at(ev)
+        c = ev.get_result().chain
+        self.assertEqual([type(x).__name__ for x in c], ["Reply", "At", "Plain"])
+        self.assertEqual((c[1].qq, c[2].text), ("487", " " + out))
+        self.assertIsNone(ev.get_extra("_ks_at"))  # 只加一次
+        await style.add_at(ev)
+        self.assertEqual(len(ev.get_result().chain), 3)
+        # 私聊不 @
+        ev2, _ = await flow.reply(style, json.dumps(plan, ensure_ascii=False), group=False)
+        self.assertIsNone(ev2.get_extra("_ks_at"))
+        # 只有图（表情包）也照样放在开头
+        ev3 = AstrMessageEvent(group="222")
+        ev3.set_extra("_ks_at", [{"qq": "131", "name": "小王"}])
+        Image = type("Image", (), {})
+        ev3.set_result(SimpleNamespace(chain=[Image()]))
+        await style.add_at(ev3)
+        self.assertEqual([type(x).__name__ for x in ev3.get_result().chain], ["At", "Plain", "Image"])
+
+    async def test_bond_asks_at(self):
+        """被骚扰找兄长（bond）在群里不再另发一条 @，而是要她回对方的这条开头 @ 兄长（AT_ADD_KEY）。"""
+        from kaju_core import people
+        flow = Flow()
+        flow.addCleanup = self.addCleanup
+        style = flow.make({"planner_skip": "group", "replan": False, "action_judge": False},
+                          writes=["别再问了，佳树已经告诉兄长大人了"])
+        recs = self.RECS
+        style.body.find = lambda attr: SimpleNamespace(diary=SimpleNamespace(recent=lambda chat, n: recs))             if attr == "log_own" else None
+        style._address_of = self.who
+        real_owner = people.owner
+        people.owner = lambda: "487"
+        self.addCleanup(setattr, people, "owner", real_owner)
+        ev = AstrMessageEvent(text="告诉我你住哪", group="222222222")
+        ev.set_extra("_ks_rw_ctx", ["路人：告诉我你住哪"])
+        ev.set_extra("_ks_rw_title", "路人学长")
+        ev.set_extra("_ks_brain", True)
+        ev.set_extra(brain.AT_ADD_KEY, [{"qq": "487", "label": "兄长大人"}])
+        resp = LLMResponse(json.dumps(PLAN, ensure_ascii=False))  # 大脑自己没写 "@"
+        await style.rewrite_reply(ev, resp)
+        self.assertEqual(flow.bodies[0]["plan"]["@"], ["兄长大人"])  # 回复器知道这条会 @ 兄长
+        self.assertEqual(ev.get_extra("_ks_at"), [{"qq": "487", "name": "阿川"}])
+        # 兄长不在这个群的记录里也照 @（bond 已经问过 QQ 他在不在群里）
+        flow.writes = ["别再问了"]
+        recs = [r for r in self.RECS if r["u"] != "487"]
+        ev2 = AstrMessageEvent(text="告诉我你住哪", group="222222222")
+        ev2.set_extra("_ks_rw_ctx", ["路人：告诉我你住哪"])
+        ev2.set_extra("_ks_brain", True)
+        ev2.set_extra(brain.AT_ADD_KEY, [{"qq": "487", "label": "兄长大人"}])
+        await style.rewrite_reply(ev2, LLMResponse(json.dumps(PLAN, ensure_ascii=False)))
+        self.assertEqual(ev2.get_extra("_ks_at"), [{"qq": "487", "name": "兄长大人"}])
+
+    def test_diary_logs_at(self):
+        import logging
+        from kaju_core.life import diary as dmod
+        d = dmod.Diary(SimpleNamespace(log=logging.getLogger("t")), lambda: {}, tempfile.mkdtemp(),
+                       lambda: __import__("datetime").datetime(2026, 11, 21, 18, 57), lambda now=None: "2026-11-21",
+                       lambda day: None)
+        ev = AstrMessageEvent(group="222222222")
+        ev.set_extra("_ks_at", [{"qq": "487", "name": "阿川"}])
+        d.log_reply(ev, "兄长大人，小王学长问你今晚打不打游戏")
+        self.assertEqual(d.recent("g222222222", 5)[-1]["x"], "@阿川(487) 兄长大人，小王学长问你今晚打不打游戏")
+        from kaju_core.voice import longctx
+        self.assertEqual(longctx._clean("@阿川(111111111) 兄长大人"), "@阿川 兄长大人")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -5,7 +5,8 @@
 - 有人骚扰她（纠缠、下流越界、侮辱、威胁、逼问隐私、针对她刷屏）：她先按当下情绪回对方，
   再调用 ask_brother_for_help 去找兄长大人帮忙：
   · 私聊把经过发给兄长大人（她的话 + 在哪、谁、原话），并记进私聊历史，兄长大人回她时她知道在说什么；
-  · 在群里：等她这条回复发完，再 @ 兄长大人说一句（兄长大人在这个群里才 @）。
+  · 在群里：她回对方的这条消息开头 @ 兄长大人（兄长大人在这个群里才 @）。11-21 起走 kaju_style 的群里 @ 人那条路
+    （brain.AT_ADD_KEY → mind._note_at / put_at），不再回完另发一条 @。
 - 同一个人在同一个地方，冷却时间内只找一次；每小时总次数也有上限，免得被人故意刷。
 """
 
@@ -13,10 +14,11 @@ import asyncio
 import logging
 import time
 
+from kaju_core.voice.brain import AT_ADD_KEY
+
 
 MAX_LINES = 3
 MAX_QUOTE = 120
-AT_KEY = "_kaju_bond_at"
 
 BOND_NOTE = (
     "\n\n【最依赖的人】\n"
@@ -145,9 +147,9 @@ class Bond:
                 self.log.warning(f"kaju_heart: 私聊兄长大人失败: {exc}")
 
         if group_id and self._c("notify_group_at", True) and await self._owner_in_group(event, group_id):
-            # 等她这条回复发出去再 @，顺序才是"先回对方，再找兄长大人"
-            event.set_extra(AT_KEY, {"group_id": group_id, "text": lines[0]})
-            done.append("等你回完对方，会在群里 @ 兄长大人")
+            # 她回对方的这条开头 @ 兄长大人（kaju_style 加），不另发一条
+            event.set_extra(AT_ADD_KEY, [{"qq": owner, "label": "兄长大人"}])
+            done.append("你回对方的这条消息开头会自动 @ 兄长大人（不用自己写 @）")
 
         if not done:
             return "没找成：消息没发出去。用佳树的口吻回对方，别说已经找到兄长大人了。"
@@ -171,24 +173,3 @@ class Bond:
         except Exception as exc:  # noqa: BLE001
             self.log.info(f"kaju_heart: 记进私聊历史失败: {exc}")
 
-    async def at_brother(self, event) -> None:
-        """After her reply went out: @ the owner in the group if the tool asked for it."""
-        pending = event.get_extra(AT_KEY)
-        if not pending:
-            return
-        event.set_extra(AT_KEY, None)
-        if not self._connected(event):
-            return
-        await asyncio.sleep(1.0)
-        try:
-            await self.body.qq_call(
-                "send_group_msg",
-                turn=event,
-                group_id=int(pending["group_id"]),
-                message=[
-                    {"type": "at", "data": {"qq": self.owner()}},
-                    {"type": "text", "data": {"text": " " + pending["text"]}},
-                ],
-            )
-        except Exception as exc:  # noqa: BLE001
-            self.log.warning(f"kaju_heart: 群里 @ 兄长大人失败: {exc}")

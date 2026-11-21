@@ -29,6 +29,15 @@ NEED_PART = """
   这一项只看对方，不看她自己的心情：她再低落，对方需要倾听的时候也是倾听。"""
 NEED_KEY = ', "对方需要": "类别：为什么"'
 
+# 群里 @人（2026-11-21 兄长：“问问你家主人晚上打不打游戏”，她回“佳树来问问兄长大人呀”就没下文了——她手里没有叫人的动作，
+# “去问问”只停在嘴上。现在大脑写 "@"，发出去时这条开头真的 @ 那个人，mind._note_at 照群聊记录认人）。
+AT_PART = """@人（只在群聊）：她能在这条消息开头 @ 群里的人，对方会收到提醒。有人让她叫谁、找谁、问谁、转告谁
+  （“问问你家主人…”“叫兄长来”“喊一下555”），或者她有事要专门让某个不在跟她说话的人看到，就在 JSON 里加一项
+  "@": ["名字"]（兄长大人就写“兄长大人”，别人照聊天里的名字写），这一轮就真的当场 @ 了他。
+  @ 了他，这条话就是说给他看的：要表达的写她要对他说的内容（“转达：学长问他晚上打不打游戏”），
+  不写“已经 @ 他了 / 已经帮你问了”这种汇报。答应了叫人、问人就当场 @，不写“去问问 / 等下叫他”这种还没做的事。
+  回的就是对方本人时不 @ 他；没人要她叫谁就不写这一项；一次最多 @ 两个人，不 @ 全体。私聊不写这一项。"""
+
 PLAN_BRAIN = f"""你是佳树（{ME}）的“大脑”：替她想清楚这一轮怎么回，但不替她说话。
 另一个写手会用她自己的口吻把话写出来；写手看得到最近十几行聊天（带时间），别的材料（记忆、日记、心情、工具查到的、读过看过的东西）它都看不到，只看你这份指导。
 你不模仿她的语气，不写任何她会说出口的句子。下面的材料里有很多写给“说话的人”的提醒（语气、长短、用词、怎么说、开头结尾），那是写手的事，你不用管；
@@ -48,6 +57,7 @@ PLAN_BRAIN = f"""你是佳树（{ME}）的“大脑”：替她想清楚这一�
   先看这句接的是谁：说话的人自己上一两句在说什么、刚才在和谁来回。接着他自己的话说（刚发了自己的图、自己的事），说的就是他自己的东西；
   刚有人问他、说他，他这句多半是在回那个人。“她上一句”只算她最近说的那句，一小时前的事不算。
   反过来，这句直接接她刚说的（答她刚问的、对她那句起哄或吐槽、顺着她刚提的东西往下说），没 @、没叫名字也是在跟她说。
+{AT_PART}
 冲着她来的性方面的话（开这类玩笑、问这类问题、往那方面扯她；刚和她说过话的人紧接着这么问，接的是她刚说的，就算冲着她来）：她听得懂，不装傻，不反问“是什么意思 / 是不是打错字”，不请对方解释。
   这一轮照样写“回”（不是装没看见），只是她是初中生，这类话她不接、不顺着聊、也不开回去，也不回答问题本身（不说“到没到 / 能不能”）；用她自己的方式挡回去就行：嫌弃一句、吐槽对方、拿兄长大人当挡箭牌、把话题拉回别的。
   多半是群友在逗她，挡得轻一点也行；真被骚扰了（一再这样、越说越过分）照【最依赖的人】里说的做，情绪照实写。
@@ -64,7 +74,7 @@ PLAN_BRAIN = f"""你是佳树（{ME}）的“大脑”：替她想清楚这一�
 局面：一两句话：最后这句是谁对谁说的、接的是哪件事、为什么轮到她回。写手看得到聊天，不复述聊天里的话，不写几点几分。每句写出主语。
 要接住的：对方这一句里需要她接住的是哪件事（问了什么、要她做什么、在说什么事），一句话，主语是对方。{NEED_PART}
 要表达的：这一轮她要表达的意思，1～3 条，最要紧的放前面。每条写成“类别：内容”——
-  类别从这些里挑：回答、立场、反应、反问、答应、拒绝、认错、安慰、分享、提醒、道谢；
+  类别从这些里挑：回答、立场、反应、反问、答应、拒绝、认错、安慰、分享、提醒、道谢、转达；
   内容是关键信息的短语（十几个字以内）：“回答：明晚有空”“反问：找她什么事”“立场：坚持是食指，不服被说倔”“反应：被夸了很开心”“分享：视频里海豹叫个不停”。
   **内容一定不能是正文的样子**：不写称呼（兄长大人、学姐；内容里提到人用 他 / 她 / 对方 / 名字，但要写明是谁：“反应：被他关心很开心”，不写成“被关心很开心”）、不写语气词和感叹、不写“佳树觉得…”“佳树想…”这种她会说出口的整句、不写引号里的原话、
   不写书名号、不写段号和后台编号（读书进度写成读到哪件事：“分享：读到哥哥帮妹妹补日记”）。
@@ -170,6 +180,8 @@ def reference(p: dict) -> str:
     lines.append("她要表达的：" + ("；".join(p.get("要表达的") or []) or "（随口接一句）"))
     if p.get("背景"):
         lines.append("她知道的背景：" + "；".join(p["背景"]))
+    if p.get("@"):
+        lines.append("这条开头 @ 了：" + "、".join(p["@"]) + "（话可以是对他说的）")
     return "\n".join(lines)
 
 
@@ -221,7 +233,61 @@ def parse(out: str) -> dict | None:
     meme = str(v.get("表情包") or "").strip().strip("&").strip()
     if meme and meme not in ("无", "不发", "false", "False"):
         plan["表情包"] = meme  # 点名要发的表情包分类（MEME_ASK）；mind._pick_emoji 认
+    at = v.get("@") or v.get("艾特") or []
+    at = [at] if isinstance(at, str) else at if isinstance(at, list) else []
+    at = [str(x).strip().lstrip("@").strip() for x in at]
+    at = [x for x in at if x and x not in ("无", "不", "没有", "全体成员", "全体")][:2]
+    if at:
+        plan["@"] = at  # 这条开头要 @ 的人（AT_PART）；mind._note_at 认成 QQ 号
     return plan
+
+
+# 别处要这一条一定 @ 某人（被骚扰找兄长 kaju_platforms.qq.bond，11-21 并进来）：[{"qq", "name"}]，已经核实过在群里
+AT_ADD_KEY = "_ks_at_add"
+AT_IN_TEXT = re.compile(r"@([^\s(（@]{1,20})[(（](\d{5,})[)）]")  # 聊天记录里别人 @ 人的样子：@555(3000000001)
+OWNER_WORDS = ("兄长大人", "兄长", "哥哥", "哥", "主人", "你家主人")
+_SUFFIX = re.compile(r"(学长|学姐|大人|同学|老师)$")
+
+
+def at_targets(names: list[str], recs: list[dict], owner: str = "", title_of=None, limit: int = 2) -> list[tuple[str, str]]:
+    """大脑写的 "@" 名字 → [(QQ 号, 群名片)]。只认最近群聊记录里出现过的人（说过话的、被别人 @ 过的），
+    兄长大人认成 owner（也得在这个群里出现过）；名字对不上、或者对上好几个人的就不 @（话照发）。"""
+    card: dict[str, str] = {}
+    for r in recs:
+        u = str(r.get("u") or "")
+        if u.isdigit() and str(r.get("n") or "").strip():
+            card[u] = str(r["n"]).strip()  # 越后面越新
+        for n, q in AT_IN_TEXT.findall(str(r.get("x") or "")):
+            card.setdefault(q, n.strip())
+    alias: dict[str, set[str]] = {}
+    for q, n in card.items():
+        al = {n, _SUFFIX.sub("", n)}
+        if title_of:
+            try:
+                t = str(title_of(q, n) or "").strip()
+            except Exception:  # noqa: BLE001
+                t = ""
+            if t:
+                al |= {t, _SUFFIX.sub("", t)}
+        alias[q] = {a for a in al if a}
+    out: list[tuple[str, str]] = []
+    for raw in names or []:
+        w = str(raw or "").strip().lstrip("@").strip()
+        m = re.search(r"[(（]?(\d{5,})[)）]?$", w)
+        q = ""
+        if m and m.group(1) in card:
+            q = m.group(1)
+        elif w in OWNER_WORDS or w.startswith("兄长"):
+            q = owner if owner in card else ""
+        else:
+            w2 = _SUFFIX.sub("", w)
+            hits = {k for k, al in alias.items() if w in al or (w2 and w2 in al)}
+            if not hits and len(w2) >= 2:
+                hits = {k for k, al in alias.items() if any(len(a) >= 2 and (w2 in a or a in w2) for a in al)}
+            q = next(iter(hits)) if len(hits) == 1 else ""
+        if q and q not in (x[0] for x in out):
+            out.append((q, card[q]))
+    return out[:limit]
 
 
 def sentence_like(item: str) -> bool:

@@ -7,6 +7,7 @@
 """
 
 from astrbot.api import logger
+import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, register
@@ -17,7 +18,7 @@ from kaju_core.voice.mind import StyleMind  # noqa: E402
 from kaju_astr import AstrBody, plugin_log  # noqa: E402
 
 
-@register(PLUGIN_NAME, "dsh", "佳树的说话习惯：一句一条不打句号、聊作品说具体、先回应别当解说员、被纠正先接住、深夜别老催睡、别问他刚说过的、大脑出指导+回复器写", "1.30.0")
+@register(PLUGIN_NAME, "dsh", "佳树的说话习惯：一句一条不打句号、聊作品说具体、先回应别当解说员、被纠正先接住、深夜别老催睡、别问他刚说过的、大脑出指导+回复器写、群里能 @ 人", "1.31.0")
 class KajuStyle(StyleMind, Star):
     def __init__(self, context: Context, config: dict | None = None):
         Star.__init__(self, context)
@@ -100,6 +101,10 @@ class KajuStyle(StyleMind, Star):
     @filter.on_decorating_result(priority=10)
     async def restyle_outgoing(self, event: AstrMessageEvent):
         return await StyleMind.restyle_outgoing(self, event)
+
+    @filter.on_decorating_result(priority=-100001)  # 别的插件都改完文字之后：开头 @ 大脑点名的人（11-21）
+    async def add_at(self, event: AstrMessageEvent):
+        StyleMind.put_at(self, event, lambda qq, name: Comp.At(qq=qq, name=name), Comp.Plain)
 
     @filter.on_agent_done()
     async def restyle_history(self, event: AstrMessageEvent, run_context, response: LLMResponse):

@@ -137,7 +137,7 @@ CAPABILITY_LABELS = {
     "future_task": "建定时任务（到点提醒、以后再做的事）",
     "peek_group_chat": "翻看你所在的群最近的聊天",
     "send_group_message": "去你所在的群里发消息、接着回复某人",
-    "ask_brother_for_help": "被人骚扰、欺负时去找兄长大人本人帮忙（私聊告诉他，群里还会 @ 他）",
+    "ask_brother_for_help": "被人骚扰、欺负时去找兄长大人本人帮忙（私聊告诉他，在群里回对方的那条开头会 @ 他）",
     "recall_shared_file": "翻出兄长大人以前分享给你的文件重读一遍",
     "browse_bilibili": "兄长大人允许时自己去刷一会儿B站（在后台看，看完的记在心里）",
     "recall_knowledge": "想一想自己以前学到、知道的东西（看过的、听人讲过的、上网查过的）",
@@ -251,7 +251,7 @@ def _result_text(tool_result) -> str:
     return "\n".join(parts)
 
 
-@register(PLUGIN_NAME, "dsh", "说到做到：答应的事真的去做，出问题会说，做完会汇报", "2.3.0")
+@register(PLUGIN_NAME, "dsh", "说到做到：答应的事真的去做，出问题会说，做完会汇报", "2.3.1")
 class FollowThrough(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)

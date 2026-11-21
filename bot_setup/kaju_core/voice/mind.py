@@ -50,6 +50,7 @@ _REPLYER_CTX: contextvars.ContextVar = contextvars.ContextVar("kaju_replyer_ctx"
 _HOW: contextvars.ContextVar = contextvars.ContextVar("kaju_how", default="")
 
 PLUGIN_NAME = "astrbot_plugin_kaju_style"
+AT_KEY = "_ks_at"  # 这条开头要 @ 的人 [{qq, name}]（_note_at 放、add_at 加进消息；kaju_life 记进聊天记录）
 
 
 # ---- 深夜催睡
@@ -790,6 +791,64 @@ class StyleMind:
         except Exception as e:  # noqa: BLE001
             self.log.info(f"kaju_style: 挑表情包没成（这次不配图） {type(e).__name__}: {e}")
 
+    def _note_at(self, event: Turn, plan: dict) -> list[tuple[str, str]]:
+        """大脑要 @ 的人（brain.AT_PART，11-21）认成 QQ 号，放进 AT_KEY；外壳在发出去前把 @ 加在开头（put_at，外壳 add_at 调）。
+        只认最近群聊记录里出现过的人；认不出就不 @，话照发。"""
+        names = (plan or {}).get("@") or []
+        pre = [(str(a["qq"]), str(a.get("name") or "")) for a in (event.get_extra(brain.AT_ADD_KEY) or []) if a.get("qq")]
+        if not (names or pre) or not self._sec("rewrite").get("at", True):
+            return []
+        life = self.body.find("log_own")
+        diary = getattr(life, "diary", None)
+        try:
+            recs = diary.recent(f"g{event.get_group_id()}", 400) if diary is not None else []
+        except Exception:  # noqa: BLE001
+            recs = []
+        owner = ""
+        try:
+            from kaju_core import people
+            owner = people.owner()
+        except Exception:  # noqa: BLE001
+            pass
+        if not owner:
+            book = self.body.find("address_of")
+            owner = str(getattr(book, "owner", "") or "") if book is not None else ""
+        ats = brain.at_targets(names, recs, owner, self._address_of)
+        card = {q: n for q, n in brain.at_targets([q for q, _ in pre], recs, owner) if n}
+        found = dict(ats)
+        ats = [(q, n or card.get(q) or found.get(q) or "兄长大人") for q, n in pre] + [(q, n) for q, n in ats if q not in dict(pre)]
+        ats = ats[:2]
+        me = str(event.get_self_id() or "") if hasattr(event, "get_self_id") else ""
+        ats = [(q, n) for q, n in ats if q != me]
+        if ats:
+            event.set_extra(AT_KEY, [{"qq": q, "name": n} for q, n in ats])
+            self.log.info(f"kaju_style: 这条开头 @ {'、'.join(f'{n}({q})' for q, n in ats)}（大脑写的 {names}）")
+        else:
+            self.log.info(f"kaju_style: 大脑要 @ {names}，群聊记录里认不出是谁，这次不 @")
+        self._rec.note("at", {"want": names, "got": [q for q, _ in ats]})
+        return ats
+
+    def put_at(self, event: Turn, make_at, make_text) -> None:
+        """发出去前（on_decorating_result）：AT_KEY 里的人 @ 在这条开头（引用之后），后面空一格。
+        make_at(qq, name) / make_text(text) 由外壳给（AstrBot 的消息段）。"""
+        ats = event.get_extra(AT_KEY)
+        if not ats:
+            return
+        result = event.get_result()
+        if not result or not getattr(result, "chain", None):
+            return
+        event.set_extra(AT_KEY, None)  # 分段发时只加一次（respond 阶段把开头的 @ 挂在第一段上）
+        chain = result.chain
+        i = 0
+        while i < len(chain) and type(chain[i]).__name__ == "Reply":
+            i += 1
+        if i < len(chain) and type(chain[i]).__name__ == "Plain" and getattr(chain[i], "text", ""):
+            chain[i].text = " " + chain[i].text.lstrip()
+        else:
+            chain.insert(i, make_text(" "))
+        for a in reversed(ats):
+            chain.insert(i, make_at(str(a["qq"]), str(a.get("name") or "")))
+
     def notify_model_down(self) -> None:
         """后台：DeepSeek 写一两句，用她的 QQ 私聊和抖音私信告诉兄长主模型连后备都没答上来。
         rewrite.gemini_down_notify_minutes（默认 30）分钟内只说一次；用哪个模型看 rewrite.gemini_down_provider_id（默认 deepseek）。
@@ -1123,6 +1182,9 @@ class StyleMind:
             event.set_extra("kaju_style_rewritten", {"draft": draft, "new": ""})  # 历史里别留下它写的东西
             self._hush(event, resp)
             return
+        if kind == "群聊" and event.get_extra(brain.AT_ADD_KEY):  # 工具要这条一定 @ 谁（被骚扰找兄长）：回复器和核对也知道
+            plan = {**plan, "@": list(dict.fromkeys([*(a.get("label") or "兄长大人" for a in event.get_extra(brain.AT_ADD_KEY)),
+                                                     *(plan.get("@") or [])]))[:2]}
         event.set_extra("_ks_plan", plan)  # follow_through 看“答应：…”有没有真做（11-19：答应“去查 Hoody”却没调工具）
         if kind == "群聊" and plan.get("回不回") == "不回":
             if str(cfg.get("planner_skip", "log")) == "group":
@@ -1222,7 +1284,9 @@ class StyleMind:
         new, _, attempt, t1 = done
         await self._pick_emoji(event, new, plan, ctx)
         resp.completion_text = rewrite.with_tags(new, tags)
-        event.set_extra("kaju_style_rewritten", {"draft": draft, "new": resp.completion_text})
+        ats = self._note_at(event, plan) if kind == "群聊" else []
+        head = "".join(f"@{n} " for _, n in ats)  # 历史里也记上她 @ 了谁（下一轮大脑知道已经叫过了）
+        event.set_extra("kaju_style_rewritten", {"draft": draft, "new": head + resp.completion_text})
         how = "照指导写" + (f"（第 {attempt + 1} 遍）" if attempt else "")
         self.log.info(f"kaju_style: {how} {t1 - t0:.1f}s + 核对 {time.time() - t1:.1f}s {draft[:30]!r} -> {new[:30]!r}")
 
