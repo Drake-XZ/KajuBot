@@ -377,6 +377,11 @@ class LearnMind:
         return await self.reader.start(title, text, who=who, chat=self._chat(event), umo=event.unified_msg_origin, kind=kind,
                                        cut=cut)
 
+    def keep_feeling(self, m: dict, src: str) -> None:
+        """给感官用（2026-11-22）：看视频、听歌时说得更细的心情、里面人表达心情的一句，也攒进心情说法。"""
+        if self._cfg("enable", True) and self._cfg("reading.feelings", True):
+            self.reader.keep_feeling(m, src)
+
     async def watch_along(self, title: str, segments: list[dict], umo: str = "", who: str = "") -> str:
         """给 kaju_basics 用：长视频切成几段，一段一段看、边看边想。"""
         if not self._cfg("enable", True) or not self._cfg("reading.video", True):
@@ -1172,6 +1177,14 @@ class LearnMind:
                 now = time.time()
                 req.system_prompt = (req.system_prompt or "") + "\n\n" + "\n\n".join(self.reader._note(j, now) for j in jobs)
                 event.set_extra("_kl_reading", [j["id"] for j in jobs if not j.get("done")])  # 回复回来时对着实际核对
+                event.set_extra("_kl_reading_all", [j["id"] for j in jobs])  # 她回的话记进 told（主动说时别重复）
+                for j in jobs:
+                    if j["chat"] == self._chat(event):
+                        j["talked_at"] = now  # 他在这儿聊着：“好一阵没说了”从这儿算
+            if self._cfg("reading.feelings", True):  # 读书、看东西时攒下的更细的心情说法（11-22）
+                fn = self.reader.feelings_note()
+                if fn:
+                    req.system_prompt = (req.system_prompt or "") + "\n\n" + fn
         gid = str(event.get_group_id() or "")
         if gid and self._cfg("jargon.enable", True) and self._cfg("jargon.inject", True):  # 这个群的叫法（11-19）
             hits = JG.lookup(self._jargon(), gid, text, int(self._cfg("jargon.max_show", 4)),
@@ -1216,7 +1229,7 @@ class LearnMind:
     async def learn_from_tool(self, event: Turn, tool, tool_args, tool_result):
         """上网查过的：查到的内容也学进去。"""
         name = str(getattr(tool, "name", "") or "")
-        if name == "reading_pace":  # 这一轮真的改过读书节奏（核对时就不再替她改）
+        if name in ("reading_pace", "reading_plan"):  # 这一轮真的改过读书节奏 / 安排（核对时就不再替她改）
             event.set_extra("_kl_paced", (event.get_extra("_kl_paced") or []) + [_tool_text(tool_result)[:120]])
             return
         if not self._cfg("enable", True) or not self._cfg("web.enable", True):
@@ -1240,6 +1253,8 @@ class LearnMind:
         reply = MEME_TAG.sub("", getattr(resp, "completion_text", "") or "").strip()
         if reply and "[SKIP]" not in reply.upper():
             self.credit(event, reply)
+            if self._cfg("reading.enable", True):
+                await self._reading_after(event, reply)
         self._take_docs(event, reply)
 
     async def reading_check(self, event: Turn, resp: Answer):
@@ -1288,8 +1303,57 @@ class LearnMind:
             title = jobs[0]["title"] if len(jobs) == 1 else ""
             out = self.reader.set_pace(self._chat(event), res["commit"], title)
             self.log.info(f"kaju_learn: 她答应了「{res['commit']}」却没改，替她改了：{out}")
-        elif not res["fixed"]:
+        if res.get("plan") and not paced:
+            p = res["plan"]
+            out = self.reader.set_plan(self._chat(event), p["at"], p["then"], jobs[0]["title"] if len(jobs) == 1 else "", p["edge"])
+            self.log.info(f"kaju_learn: 她答应了「{p['edge']}{p['at']}就{p['then']}」却没定，替她定了：{out}")
+        if not res["commit"] and not res.get("plan") and not res["fixed"]:
             self.log.info(f"kaju_learn: 读书的事核对过，没说错（{time.time() - t0:.1f}s）")
+
+    async def _reading_after(self, event: Turn, reply: str) -> None:
+        """她这句发出去以后（2026-11-22）：
+        - 说起了在读的书 → 记进 told（主动说时别重复、从这儿接着说）；
+        - 大脑那一轮（kaju_style main_role=brain）reading_check 看到的是 JSON 指导、不核对：这里对着她真正说出去的话，
+          只看她答应了什么（接着读 / 先停 / 读到哪儿就停或告诉他）而实际还没那样的，替她真的改过来。她的话一个字不动。"""
+        ids = event.get_extra("_kl_reading_all") or []
+        jobs = [self.reader.jobs[i] for i in ids if i in self.reader.jobs]
+        if not jobs or event.get_extra("_kl_reading_after"):
+            return
+        event.set_extra("_kl_reading_after", True)
+        words = [B.clean(j["title"])[:4] for j in jobs] + [k for j in jobs for k in j["state"].get("people", {})]
+        said = (event.get_message_str() if hasattr(event, "get_message_str") else event.message_str) or ""
+        if not (READING_WORDS.search(reply + said) or any(w and w in reply for w in words)):
+            return
+        for j in jobs:
+            if j["chat"] == self._chat(event):
+                self.reader.note_reply(j, reply)
+        live = [j for j in jobs if not j.get("done")]
+        if not live or not event.get_extra("_ks_brain") or not self._cfg("reading.check", True):
+            return
+        if event.get_extra("_kl_paced"):  # 这一轮真的调过工具
+            return
+        prompt = self.reader.check_prompt(live, time.time(), who=self._who(str(event.get_sender_id() or ""), event.get_sender_name() or ""),
+                                          said=said, draft=reply, paced=[])
+        t0 = time.time()
+        try:
+            pid = str(self._cfg("reading.check_provider_id", "") or self._cfg("provider_id", "") or "") or await slot_model(self.body, "fast")
+            out = await self.body.generate(pid, prompt, R_CHECK_SYSTEM, timeout=float(self._cfg("reading.check_timeout", 30)))
+            res = parse_check(out, reply)
+        except Exception as exc:  # noqa: BLE001
+            self.log.warning(f"kaju_learn: 她答应的读书安排没核对成 {type(exc).__name__}: {exc}")
+            return
+        if not res["ok"]:
+            return
+        title = live[0]["title"] if len(live) == 1 else ""
+        if res["commit"]:
+            done = self.reader.set_pace(self._chat(event), res["commit"], title)
+            self.log.info(f"kaju_learn: 她说了「{res['commit']}」却没改，替她改了：{done}")
+        if res.get("plan"):
+            p = res["plan"]
+            done = self.reader.set_plan(self._chat(event), p["at"], p["then"], title, p["edge"])
+            self.log.info(f"kaju_learn: 她答应了「{p['edge']}{p['at']}就{p['then']}」却没定，替她定了：{done}")
+        if not res["commit"] and not res.get("plan"):
+            self.log.info(f"kaju_learn: 她说的读书安排核对过，都做到了（{time.time() - t0:.1f}s）")
 
     async def reading_history(self, event: Turn, run_context, response: Answer):
         """历史里存的是核对前的草稿：kaju_style 没换成写手的话时，换成改过的那份（免得下一轮她信了说错的）。"""
@@ -1397,6 +1461,21 @@ class LearnMind:
             return "这个功能关掉了。"
         out = self.reader.set_pace(self._chat(event), action, str(title or "").strip())
         self.log.info(f"kaju_learn: 读书节奏 {action} → {out}")
+        return out
+
+    async def reading_plan(self, event: Turn, at: str, then: str = "告诉对方", edge: str = "读完", title: str = ""):
+        """给你在读的那本长书定个安排：对方让你读到 / 读完书里某处就停下、或者读到那儿就告诉他时用（比如“读完第二部跟我说一声”“今天读到一半就停”“读完这一章就先别读了”）。定好了到时候会真的停、真的主动告诉他；定不了（书里没那个地方）就照实说。
+
+        Args:
+            at(string): 书里的哪儿：章节名（“第二部”“看星星的人”）、“这一章”、“一半”“三分之二”，或者“第25段”
+            then(string): 停下 / 告诉对方 / 停下并告诉对方
+            edge(string): 读完（那部分整个读完，默认）/ 读到（刚读到那儿就停）
+            title(string): 书名（只在读好几本时才需要）
+        """
+        if not self._cfg("enable", True) or not self._cfg("reading.enable", True):
+            return "这个功能关掉了。"
+        out = self.reader.set_plan(self._chat(event), str(at or ""), str(then or ""), str(title or "").strip(), str(edge or "读完"))
+        self.log.info(f"kaju_learn: 读书安排 {edge}{at}就{then} → {out}")
         return out
 
     def reading_report(self, now: float | None = None) -> str:

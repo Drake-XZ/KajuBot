@@ -1606,10 +1606,12 @@ class KajuBasics(Browsing, BiliAccount, DouyinAccount, Owner, Star):
         return out[-n:]
 
 
-    async def say_to_owner(self, prompt: str, *, said: str, record: str, link: str = "", umo: str = "") -> tuple[bool, str]:
+    async def say_to_owner(self, prompt: str, *, said: str, record: str, link: str = "", umo: str = "",
+                           skip_minutes: float | None = None) -> tuple[bool, str]:
         """自己这边发生了事（刷到视频、书读到一半/读完），用她和兄长私聊时的完整口吻主动私聊他一两句。
         prompt 写清发生了什么、想怎么说（可以让模型 [SKIP]）；said 给 kaju_style.polish 看的场合；record 记进私聊历史的那句。
-        夜里（browse.quiet_*）、他三分钟内刚聊过、还没有口吻快照时不发。返回 (发了没有, 发的话 / 没发的原因)。"""
+        夜里（browse.quiet_*）、他 skip_minutes（默认 browse.share_skip_minutes 三分钟）内刚聊过、还没有口吻快照时不发。
+        返回 (发了没有, 发的话 / 没发的原因)。"""
         now = time.time()
         umo = umo or self._owner_umo()
         in_group = ":GroupMessage:" in umo  # 他在群里叫她去的：回群里（他多半正在群里等）
@@ -1617,7 +1619,8 @@ class KajuBasics(Browsing, BiliAccount, DouyinAccount, Owner, Star):
             return False, f"群聊暂停中（{group_quiet()}）"
         if browse.in_quiet(dt.datetime.fromtimestamp(now, self._tz()).hour, self._bw("quiet_start", 23), self._bw("quiet_end", 8)):
             return False, "太晚了 / 太早了"
-        if not in_group and now - float(getattr(self, "_owner_seen", 0) or 0) < self._bw("share_skip_minutes", 3.0) * 60:
+        skip = self._bw("share_skip_minutes", 3.0) if skip_minutes is None else float(skip_minutes)
+        if not in_group and now - float(getattr(self, "_owner_seen", 0) or 0) < skip * 60:
             return False, "兄长正在跟她聊，聊到再说"
         snap = self._browse_log.data.get("voice") or {}
         if not snap.get("system") or now - float(snap.get("t", 0)) > 7 * 86400:

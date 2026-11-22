@@ -95,7 +95,7 @@ ACTIONS: tuple[Action, ...] = (
     Action(
         "remind",
         "到点提醒、以后再做的事（定时任务）",
-        ("future_task",),
+        ("future_task", "reading_plan"),  # 11-22：“读完第二部就告诉你”定在读书安排里，也算约好了
         promise=re.compile(
             r"(明天|明早|今晚|下午|早上|晚上|到时候?|[\d一二三四五六七八九十两]+\s*(点|分钟|小时)).{0,10}"
             r"(提醒|叫你|喊你|叫醒|通知|告诉你|跟你说)"
@@ -142,6 +142,7 @@ CAPABILITY_LABELS = {
     "browse_bilibili": "兄长大人允许时自己去刷一会儿B站（在后台看，看完的记在心里）",
     "recall_knowledge": "想一想自己以前学到、知道的东西（看过的、听人讲过的、上网查过的）",
     "reading_pace": "改自己读那本长书的节奏（读快点、一口气读完、先停一下、接着读、不读了）",
+    "reading_plan": "给在读的那本长书定安排：读到 / 读完书里某处就停下、或者到那儿主动告诉对方",
     "answer_dm_request": "兄长大人答复B站私信那边的事（同意或不同意关注某人、看某人多发的视频），去照办",
 }
 
@@ -251,7 +252,7 @@ def _result_text(tool_result) -> str:
     return "\n".join(parts)
 
 
-@register(PLUGIN_NAME, "dsh", "说到做到：答应的事真的去做，出问题会说，做完会汇报", "2.3.1")
+@register(PLUGIN_NAME, "dsh", "说到做到：答应的事真的去做，出问题会说，做完会汇报", "2.4.0")
 class FollowThrough(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)

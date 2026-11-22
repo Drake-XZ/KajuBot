@@ -89,6 +89,9 @@ async def main():
     expect("parse junk", omni.parse("我看完了，很好笑"), None)
     p = omni.parse("好的：\n" + GOOD + "\n以上")
     expect("parse fields", (p["emotion"], p["intensity"], len(p["moments"]), p["moments"][1]["strength"]), ("开心", 2, 2, 3))
+    pf = omni.parse(GOOD.replace('"arc"', '"feel_fine": "好笑又有点心疼它", "expr": "我才没有哭呢", "expr_feel": "嘴硬的委屈", "arc"', 1))
+    expect("parse 更细的心情说法（11-22）", (pf["feel_fine"], pf["expr"], pf["expr_feel"], p["feel_fine"]),
+           ("好笑又有点心疼它", "我才没有哭呢", "嘴硬的委屈", ""))
     text = omni.render({**p}, "9秒", "video")
     expect("render keeps only the strongest moment", ("我笑出声了" in omni.render({**p}, "9秒", "video", 1),
                                                      "有点滑稽" in omni.render({**p}, "9秒", "video", 1)), (True, False))

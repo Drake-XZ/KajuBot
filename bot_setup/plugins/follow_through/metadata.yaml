@@ -1,5 +1,5 @@
 name: astrbot_plugin_follow_through
 desc: 说到做到：答应的事真的去做（查资料、发说说、存表情、改称呼、定时提醒、记住），出问题会说，做完会汇报
 short_desc: 说到做到，出问题会说，做完会汇报
-version: 2.3.1
+version: 2.4.0
 author: dsh

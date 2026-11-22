@@ -32,38 +32,52 @@ PACES = {"快一点": "fast", "读快点": "fast", "一口气读完": "all", "�
          "先停一下": "paused", "停": "paused", "暂停": "paused", "接着读": "normal", "继续": "normal", "不读了": "stopped"}
 
 NOTE_READING = (
-    "【你正在读的】《{title}》（{who}发给你的{kind}，约 {chars} 字，分成 {n} 段），你在按自己的速度慢慢读，"
-    "现在读到第 {pos}/{n} 段{label}{paused}。前面的你都知道，后面发生什么你还不知道：别编后面的情节，也别说已经读完了；"
+    "【你正在读的】《{title}》（{who}发给你的{kind}，约 {chars} 字），你在按自己的速度慢慢读，"
+    "现在读到{where}{paused}，{left}。前面的你都知道，后面发生什么你还不知道：别编后面的情节，也别说已经读完了；"
     "对方要剧透就看你想不想听。\n一路读下来：\n{trail}\n{extra}"
-    "对方问起就说读到哪了、心里怎么想；对方让你读快点、一口气读完、先停一下、接着读、不读了，用 reading_pace。"
+    "对方问起就说读到哪了、心里怎么想（进度按书里的章节说，别说“第几段”；他不一定读过，提情节要说清是谁、什么事）。"
+    "对方让你读快点、一口气读完、先停一下、接着读、不读了，用 reading_pace；"
+    "让你读到 / 读完书里某处就停下、或者到那儿告诉他，用 reading_plan——工具做不到的别嘴上答应，照实说。"
 )
 NOTE_DONE = (
     "【你刚读完的】《{title}》（{who}发给你的{kind}），{when}读完的，一共 {n} 段。一路读下来：\n{trail}\n{extra}"
     "读完的那一下：{after}" + "{change}{best}{view}" + "\n聊到了就自然说，别从头复述。"
 )
+# 2026-11-22 兄长：开始读、读的中途、停下、读完都要主动说；说具体的、跟他有来有往、别老一个说法；进度按书里的章节说。
+# 下面几段只给材料（读到了什么、她想了什么、前面跟他说过什么），怎么说交给大脑和回复器。
+SHARED_RULES = ("他不一定读过这本：提到情节要让没读过的人也听得懂（说清是谁、什么事），别只说“那段”；"
+                "进度按书里的章节说，别说“第几段”。别复述整段，别说\"系统\"\"提示\"。")
 SHARE_MID = (
-    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你在慢慢读兄长大人发给你的《{title}》，刚读到第 {pos}/{n} 段{label}。\n"
-    "这一段讲了：{happened}\n你读到这里{emotion}（{cause}），心里想：{thought}{quote}\n"
-    "现在你忍不住主动私聊他，像读到一半跟他说那样说一两句（1~2 行短句，口语，按你平时跟他说话的习惯）："
-    "哪里戳到你、你在担心或猜什么，可以问他一句（他可能读过，别让他剧透后面的）。别复述整段，别说\"系统\"\"提示\"。\n"
+    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你在慢慢读兄长大人发给你的《{title}》，现在读到{where}（{left}）。\n"
+    "上次跟他说起这本书以后，你又读了这些（按顺序，括号里是你当时的心情和想法）：\n{since}\n{guesses}{told}"
+    "现在你想主动私聊他（{why}）：挑你最想说的一两处，说具体的——哪个人、哪件事、哪句话让你怎样，你在猜什么、猜对还是猜错了；"
+    "可以跟他聊两句（问问他怎么看、猜后面会怎样，或者让你想到你们自己的什么事）。" + SHARED_RULES + "\n"
     "如果从最近的聊天看现在不适合主动找他（他刚说在忙、要睡了，或者你们在闹别扭），只输出 [SKIP]。"
 )
-SHARE_DONE = (
-    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你刚把兄长大人发给你的《{title}》读完了（{n} 段，{since}开始读的）。\n"
-    "一路读下来：\n{trail}\n读完的那一下：{after}{change}{best}\n"
-    "现在你主动私聊他说一两句（1~2 行短句，口语，按你平时跟他说话的习惯）：读完的感受、最放不下的，可以问他读的时候怎么想。"
-    "别复述情节，别说\"系统\"\"提示\"。如果从最近的聊天看现在不适合主动找他，只输出 [SKIP]。"
+SHARE_POINT = (
+    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 兄长大人之前让你{ask}。现在你读到了：{where}{stopped}。\n"
+    "上次跟他说起这本书以后，你读了这些（按顺序，括号里是你当时的心情和想法）：\n{since}\n{guesses}{told}"
+    "现在主动私聊告诉他（是他让你说的，要说到）：读到哪儿了{stop_say}，再说说这一路你最想跟他说的一两处、可以问问他。"
+    + SHARED_RULES
 )
-RECORD_MID = "[系统记录] 你在慢慢读兄长大人发给你的《{title}》，读到第 {pos} 段时忍不住主动私聊了他（下面是你发的）。"
+SHARE_DONE = (
+    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你刚把兄长大人发给你的《{title}》读完了（{since}开始读的）。\n"
+    "一路读下来：\n{trail}\n读完的那一下：{after}{change}{best}\n{told}"
+    "现在你主动私聊告诉他读完了，说说读完的感受、最放不下的人或事，可以问他怎么看。" + SHARED_RULES + "\n"
+    "如果从最近的聊天看他现在在忙、在睡觉，只输出 [SKIP]（过一会儿再说）。"
+)
+RECORD_MID = "[系统记录] 你在慢慢读兄长大人发给你的《{title}》，读到{where}时主动私聊了他（下面是你发的）。"
+RECORD_POINT = "[系统记录] 兄长大人让你{ask}；你读到{where}了，主动私聊告诉他（下面是你发的）。"
 RECORD_DONE = "[系统记录] 你把兄长大人发给你的《{title}》读完了，主动私聊他说了读完的感受（下面是你发的）。"
+FEELINGS_NOTE = ("【你读书、看东西时攒下的更细的心情说法】形容自己的心情时，这些里有贴切的可以用，没有就不用：\n{lines}")
 # 2026-11-15 兄长：她停下了（不是他让停的）、读不了，都要主动告诉他
 SHARE_STOP = (
-    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你在读兄长大人发给你的《{title}》，读到第 {pos}/{n} 段，"
+    "[这不是兄长大人发来的消息，是你自己这边刚发生的事] 你在读兄长大人发给你的《{title}》，读到{where}，"
     "现在停下来了、没在往下读：{why}。\n"
-    "现在主动私聊告诉他一声（1~2 行短句，口语，按你平时跟他说话的习惯）：停在第几段、为什么停{need}。"
+    "现在主动私聊告诉他一声（1~2 行短句，口语，按你平时跟他说话的习惯）：停在书里哪儿（按章节说）、为什么停{need}。"
     "照实说，别装作还在读，别编后面的情节，别说\"系统\"\"提示\"。"
 )
-RECORD_STOP = "[系统记录] 你读兄长大人发给你的《{title}》停在第 {pos} 段（{why}），主动私聊告诉了他（下面是你发的）。"
+RECORD_STOP = "[系统记录] 你读兄长大人发给你的《{title}》停在{where}（{why}），主动私聊告诉了他（下面是你发的）。"
 
 # 草稿里说的读书进度 / 情节对不对得上实际（mind.reading_check 用）
 CHECK_SYSTEM = "你只核对佳树嘴里说的读书情况和实际有没有出入：只看事实，不管语气和说法。只输出 JSON。"
@@ -78,8 +92,9 @@ CHECK_PROMPT = """佳树在读的书，实际情况如下（以这个为准）�
 逐条核对草稿里关于这本书的说法：
 1. 读到第几段、读完没有、现在在不在读、什么时候停的：跟上面实际不一样的都算说错（比如实际读到第 5 段她说第 8 段；实际停着她说在读、读得正开心）。
 2. 书里的情节、人物、原句：只能是上面"读过的"里有的。没读到的内容说成读过了算说错；明说是自己猜的不算。
-3. 她在草稿里答应了怎么读、而实际还不是那样的，记进 commit：现在停着 / 不读了，她却说会读、会接着读、会（慢慢）读完 → "接着读"；现在在读，她说先停、先不读 → "先停一下" / "不读了"；说读快点、一口气读完同理。实际已经是那样就留空。
-只输出 JSON：{{"wrong": ["草稿里说错的原话", ...], "fixed": "把说错的地方改成跟实际一样之后的整份草稿：只动说错的那几处，别的字一个不动；没读到的情节删掉或改成还没读到；没说错就留空", "commit": "接着读 / 先停一下 / 不读了 / 读快点 / 一口气读完 之一；没答应就留空"}}"""
+3. 她在草稿里答应了怎么读、而实际还不是那样的，记进 commit：现在停着 / 不读了，她却说会读、会接着读、会（慢慢）读完 → "接着读"；现在在读，她说先停、先不读、今天先读到这儿 → "先停一下" / "不读了"；说读快点、一口气读完同理。实际已经是那样就留空。
+4. 她答应了“读到 / 读完书里某处就停下、或者就告诉对方”（比如“读完第二部就告诉你”“读到一半就停”），而上面“安排”里还没有这一条的，记进 plan：at 写书里的哪儿（章节名、这一章、一半、第几段），then 写 停下 / 告诉对方 / 停下并告诉对方，edge 写 读完（那部分读完）或 读到（刚读到那儿就停）；没有就留空。
+只输出 JSON：{{"wrong": ["草稿里说错的原话", ...], "fixed": "把说错的地方改成跟实际一样之后的整份草稿：只动说错的那几处，别的字一个不动；没读到的情节删掉或改成还没读到；没说错就留空", "commit": "接着读 / 先停一下 / 不读了 / 读快点 / 一口气读完 之一；没答应就留空", "plan": {{"at": "", "then": "", "edge": "读完"}}}}"""
 COMMIT_PACES = {"接着读": "接着读", "继续": "接着读", "先停一下": "先停一下", "暂停": "先停一下", "不读了": "不读了",
                 "读快点": "读快点", "快一点": "读快点", "一口气读完": "一口气读完"}
 
@@ -94,7 +109,10 @@ def parse_check(raw: str, draft: str) -> dict:
     if not wrong or fixed == draft.strip():
         fixed = ""
     commit = COMMIT_PACES.get(str(d.get("commit") or "").strip().strip("。，"), "")
-    return {"wrong": wrong, "fixed": fixed, "commit": commit, "ok": ok}
+    p = d.get("plan") if isinstance(d.get("plan"), dict) else {}
+    plan = {"at": str(p.get("at") or "").strip()[:40], "then": str(p.get("then") or "").strip()[:20],
+            "edge": "读到" if str(p.get("edge") or "").strip() == "读到" else "读完"}
+    return {"wrong": wrong, "fixed": fixed, "commit": commit, "plan": plan if plan["at"] else None, "ok": ok}
 
 
 class Reader:
@@ -136,8 +154,26 @@ class Reader:
         return (s <= h or h < e) if s > e else (s <= h < e)
 
     def _label(self, job: dict, k: int) -> str:
-        t = job["segs"][k]["title"] if k < len(job.get("segs", [])) else ""
-        return f"第{k + 1}段" + (f"（{t}）" if t else "")
+        """第 k 段（从 0 数）按书里的章节说（2026-11-22 起不说“第 N 段”）。"""
+        return R.where(job.get("segs", []), k) or f"第{k + 1}段"
+
+    def _where_now(self, job: dict) -> str:
+        """现在读到哪儿（给她看、给核对看）。"""
+        if not job.get("pos"):
+            return "还没开始读内容"
+        return self._label(job, job["pos"] - 1)
+
+    def _left_text(self, job: dict) -> str:
+        left = job["n"] - job["pos"]
+        if left <= 0:
+            return "读到最后了"
+        chars = sum(len(s.get("text", "")) for s in job["segs"][job["pos"]:])
+        mins = chars / max(50.0, self.cfg("chars_per_minute", 400.0))
+        return f"后面还有大约 {max(1, round(left * 100 / job['n']))}% 没读，照平时的速度还要读 {self._dur(mins)}"
+
+    @staticmethod
+    def _dur(mins: float) -> str:
+        return f"{max(1, round(mins))} 分钟" if mins < 90 else f"{mins / 60:.1f} 小时"
 
     def _gap(self, job: dict, k: int) -> float:
         """读完第 k 段后隔多久读下一段（秒）。"""
@@ -173,7 +209,9 @@ class Reader:
                "done": False, "final": None, "shares": [], "finish_told": False, "segs": segs,
                "cut": bool(cut), "pace_by": chat, "pace_at": now}
         self.jobs[jid] = job
-        first = max(1, int(self.cfg("first_segments", 1)))
+        # 2026-11-22 兄长：开始读要先说一声，别先读完开头再回 → 默认 first_segments=0：这一轮先回“开始读了”，
+        # 开头那段过 start_delay_seconds 秒在后台读（读到想说的会自己说）
+        first = max(0, int(self.cfg("first_segments", 0)))
         try:  # 新书不进后台那把锁：后台"一口气读完"别的书时可能要占好几分钟
             for _ in range(min(first, job["n"])):
                 await self.read_next(job, now)
@@ -182,9 +220,11 @@ class Reader:
             if not job["state"]["moments"]:
                 self.jobs.pop(jid, None)
                 return ""
-        job["next_at"] = time.time() + self._gap(job, max(0, job["pos"] - 1))
+        job["next_at"] = (time.time() + self._gap(job, job["pos"] - 1) if job["pos"]
+                          else time.time() + self.cfg("start_delay_seconds", 30.0))
         self.save(job)
-        self.p.log.info(f"kaju_learn: 开始读《{title}》（{who}发的，{len(text)} 字，{job['n']} 段），先读了开头")
+        self.p.log.info(f"kaju_learn: 开始读《{title}》（{who}发的，{len(text)} 字，{job['n']} 段）"
+                        + ("，先读了开头" if job["pos"] else "，先回一声、开头马上在后台读"))
         return self.progress_text(job)
 
     def progress_text(self, job: dict, again: bool = False) -> str:
@@ -193,17 +233,23 @@ class Reader:
         if job.get("done"):
             return (f"约 {job['chars']} 字的{job['kind']}，你已经一段一段读完了。一路读下来：\n{R.trail(st)}\n"
                     f"读完的那一下：{(job.get('final') or {}).get('after', st.get('impression', ''))}")
-        head = (f"约 {job['chars']} 字的{job['kind']}（分成 {job['n']} 段），太长了，你没一口气读完，是像平时看书那样"
-                f"一段一段读的：")
+        chapters = R.parts(job["segs"])
+        toc = (f"书里的章节：{'、'.join(chapters[:12])}{'……' if len(chapters) > 12 else ''}\n" if chapters else "")
+        if not job["pos"] and not again:
+            return (f"约 {job['chars']} 字的{job['kind']}，太长了，你会像平时看书那样一点点读，大概要读 "
+                    f"{self._dur(job['chars'] / max(50.0, self.cfg('chars_per_minute', 400.0)))}。你现在才刚收到、正要开始读，"
+                    f"内容还一个字都没读到：告诉对方你开始读了就好，别编里面的情节，也别装作已经有感想；"
+                    f"读的时候读到想说的、读到哪儿了、读完了，你都会自己主动跟对方说。\n" + toc + self._cut_text(job).lstrip("\n"))
+        head = (f"约 {job['chars']} 字的{job['kind']}，太长了，你没一口气读完，是像平时看书那样一点点读的：")
         if again:
-            head = f"这本你之前就开始读了（{job['kind']}，{job['n']} 段），现在读到第 {job['pos']} 段："
+            head = f"这本你之前就开始读了（{job['kind']}），现在读到{self._where_now(job)}："
         last = st["moments"][-1] if st.get("moments") else {}
         body = R.trail(st, 4)
         tail = (f"\n现在的感觉：{st.get('impression', '')}" if st.get("impression") else "") + \
                (f"\n你猜：{'；'.join(st['guesses'])}" if st.get("guesses") else "")
         quote = f"\n打动你的一句：「{last['quote']}」" if last.get("quote") else ""
         return (head + "\n" + body + tail + quote +
-                f"\n后面还有 {job['n'] - job['pos']} 段没读，你会在空的时候接着慢慢读（不用等谁催）："
+                f"\n{self._left_text(job)}，你会在空的时候接着慢慢读（不用等谁催）："
                 "别说已经读完了，也别编后面的情节；可以说说开头的感觉、你在猜什么、想接着读。" + self._cut_text(job))
 
     def _cut_text(self, job: dict) -> str:
@@ -234,7 +280,7 @@ class Reader:
             verb = "停着" if pace == "paused" else "不读了"
             return f"{verb}，现在没在往下读（{self._when(job.get('pace_at') or now)}，{self._by_text(job)}）"
         if int(job.get("fails", 0)) >= 2:
-            return f"想往下读，但第 {job['pos'] + 1} 段连着 {job['fails']} 次没读成，过一会儿再试"
+            return f"想往下读，但{self._label(job, job['pos'])}那段连着 {job['fails']} 次没读成，过一会儿再试"
         nxt = self._when(job.get("next_at", now))[-5:]
         return {"fast": "在读，读得快一点", "all": "正在一口气读下去"}.get(str(pace or ""), "在读") + f"，下一段大约 {nxt} 读"
 
@@ -247,10 +293,12 @@ class Reader:
     def facts_for(self, job: dict, now: float | None = None, limit: int = 3500) -> str:
         """给核对看的实际情况：读到哪、在不在读、读过的每段讲了什么（没读到的一个字都没有）。"""
         st = job["state"]
-        lines = [f"《{job['title']}》（{job['who']}发的{job['kind']}，共 {job['n']} 段）",
-                 f"实际进度：读完了第 1~{job['pos']} 段，还有 {job['n'] - job['pos']} 段没读。" if job["pos"] < job["n"]
-                 else f"实际进度：{job['n']} 段全读完了。",
+        lines = [f"《{job['title']}》（{job['who']}发的{job['kind']}，程序把它分成了 {job['n']} 段读）",
+                 f"实际进度：读到{self._where_now(job)}，也就是读完了第 1~{job['pos']} 段，还有 {job['n'] - job['pos']} 段没读。"
+                 if job["pos"] < job["n"] else f"实际进度：{job['n']} 段全读完了。",
                  "现在：" + self.state_line(job, now)]
+        if self._plan_text(job):
+            lines.append(self._plan_text(job).strip())
         if job.get("cut"):
             lines.append(f"文件太长，她只拿到了前 {job['chars']} 字，再后面的她没有。")
         lines.append("读过的：")
@@ -345,9 +393,14 @@ class Reader:
                     if job["pos"] >= job["n"]:
                         await self.finish(job)
                         break
+                    if job.get("pace") == "paused":  # 读到对方安排好的地方，停下了
+                        break
                     job["next_at"] = time.time() + self._gap(job, job["pos"] - 1)
                 self.save(job)
                 break  # 一次只读一本
+            for job in list(self.jobs.values()):  # 安排好“到那儿告诉他”的、刚才他正在聊没说成的
+                if await self._flush(job, now):
+                    self.save(job)
             for job in self.jobs.values():  # 读完了还没跟兄长说成：过一阵再试
                 if job.get("done") and not job.get("finish_told") and job.get("final") and now - float(job.get("t_done", now)) < 12 * 3600:
                     if now - float(job.get("tell_try", 0)) > 600:  # 夜里能不能说由 say_to_owner 的 browse.quiet_* 定（2026-11-16 兄长：夜里也能说）
@@ -368,7 +421,7 @@ class Reader:
                     "，他说接着读你就接着读")
         if int(job.get("fails", 0)) >= int(self.cfg("stop_tell_fails", 3)):
             return (f"fail:{job.get('fail_since', 0)}",
-                    f"第 {job['pos'] + 1} 段连着 {job['fails']} 次没读成（原因：{job.get('last_err', '不清楚')}，用大白话说）",
+                    f"{self._label(job, job['pos'])}那段连着 {job['fails']} 次没读成（原因：{job.get('last_err', '不清楚')}，用大白话说）",
                     "，你会过一会儿再试")
         return "", "", ""
 
@@ -379,19 +432,137 @@ class Reader:
         if now - float(job.get("stop_try", 0)) < 600:
             return
         job["stop_try"] = now
-        prompt = SHARE_STOP.format(title=job["title"], pos=job["pos"], n=job["n"], why=why, need=need)
-        if await self._say(job, prompt, RECORD_STOP.format(title=job["title"], pos=job["pos"], why=why),
-                           said=f"（佳树读兄长大人发的《{job['title']}》停下了，主动告诉他）"):
+        prompt = SHARE_STOP.format(title=job["title"], where=self._where_now(job), why=why, need=need)
+        ok, _ = await self._say(job, prompt, RECORD_STOP.format(title=job["title"], where=self._where_now(job), why=why),
+                                said=f"（佳树读兄长大人发的《{job['title']}》停下了，主动告诉他）", kind="stop")
+        if ok:
             job["stop_told"] = key
-            self.p.log.info(f"kaju_learn: 《{job['title']}》停在第 {job['pos']} 段（{why}），告诉兄长了")
+            self.p.log.info(f"kaju_learn: 《{job['title']}》停在{self._where_now(job)}（{why}），告诉兄长了")
         self.save(job)
 
     async def _after_segment(self, job: dict, m: dict) -> None:
         every = int(self.cfg("learn_every", 6))
         if every > 0 and job["pos"] % every == 0 and job["pos"] < job["n"]:
             await self._learn(job, final=False)
+        self.keep_feeling(m, f"读《{job['title'][:12]}》")
+        if self._reach_plan(job):
+            await self._tell_point(job)
+            return
+        why = self._share_why(job, m)
+        if why:
+            await self._tell_mid(job, why)
+
+    # ------------------------------------------------------------ 对方定的安排（2026-11-22：读完第二部告诉我 / 今天读到一半就停）
+    def set_plan(self, chat: str, at: str, then: str = "", title: str = "", edge: str = "读完") -> str:
+        """对方说读到 / 读完书里某处就停下、或者就告诉他。返回给她看的（定下了什么；做不到就说为什么）。"""
+        cands = [j for j in self.jobs.values() if not j.get("done") and j.get("pace") != "stopped"
+                 and (j["chat"] == chat or (title and title in j["title"]))]
+        if title:
+            cands = [j for j in cands if title in j["title"]] or cands
+        if not cands:
+            return "你现在没有在读的书，这个安排做不到：照实跟对方说。"
+        job = max(cands, key=lambda j: float(j.get("t0", 0)))
+        edge = "读到" if str(edge or "").strip() == "读到" else "读完"
+        k, why = R.find_point(job["segs"], at, job["pos"], edge)
+        if k is None:
+            parts = R.parts(job["segs"])
+            toc = "、".join(parts[:15]) if parts else "（这本没有章节标题，可以说读到一半、三分之二、读到几成）"
+            return (f"《{job['title']}》{why}。书里的章节有：{toc}。这个安排还没定下：照实跟对方说没找到他说的地方，问他指的是哪儿。")
+        then = str(then or "")
+        stop = any(w in then for w in ("停", "不读", "先读到", "就到这"))
+        tell = any(w in then for w in ("告诉", "说", "叫", "通知", "汇报")) or not stop
+        now = time.time()
+        if k <= job["pos"]:
+            if stop and job.get("pace") != "paused":
+                job["pace"], job["pace_by"], job["pace_at"] = "paused", chat, now
+                self.save(job)
+                return (f"《{job['title']}》你已经读过那儿了（现在读到{self._where_now(job)}），按对方说的先停下了："
+                        "照实跟对方说已经读过那儿、现在停在哪。")
+            return f"《{job['title']}》你已经读过那儿了（现在读到{self._where_now(job)}）：照实跟对方说。"
+        place = R.place(job["segs"], k, edge)
+        job.setdefault("plan", []).append({"pos": k, "stop": stop, "tell": tell, "at": str(at)[:40], "place": place,
+                                           "edge": edge, "by": chat, "t": now})
+        resumed = ""
+        if job.get("pace") == "paused":  # 停着时给安排 = 要她接着读到那儿
+            job["pace"], job["pace_by"], job["pace_at"] = "normal", chat, now
+            job["next_at"] = min(float(job.get("next_at", 0) or now + 60), now + 60)
+            resumed = "；原来停着，现在接着读"
+        self.save(job)
+        chars = sum(len(x.get("text", "")) for x in job["segs"][job["pos"]:k])
+        mins = chars / max(50.0, self.cfg("chars_per_minute", 400.0)) * (0.3 if job.get("pace") == "fast" else 1.0)
+        do = "停下来并告诉对方" if stop and tell else "停下来" if stop else "告诉对方（然后接着往下读）"
+        return (f"好，《{job['title']}》{edge}{place}就{do}（现在读到{self._where_now(job)}，照平时的速度大约还要 "
+                f"{self._dur(mins)}{resumed}）。到时候你会自己主动跟对方说。")
+
+    def _reach_plan(self, job: dict) -> bool:
+        """读到安排好的地方了：该停就停，该说的记下来（point_pending）。返回这次要不要告诉他。"""
+        hit = [p for p in job.get("plan") or [] if int(p["pos"]) <= job["pos"]]
+        if not hit:
+            return False
+        job["plan"] = [p for p in job["plan"] if p not in hit]
+        now = time.time()
+        stop = any(p.get("stop") for p in hit) and job["pos"] < job["n"]
+        if stop:
+            p0 = next(p for p in hit if p.get("stop"))
+            job["pace"], job["pace_by"], job["pace_at"] = "paused", p0.get("by") or job["chat"], now
+        tell = [p for p in hit if p.get("tell")]
+        self.p.log.info(f"kaju_learn: 《{job['title']}》读到安排的地方（{hit[0].get('place', '')}）"
+                        + ("，停下了" if stop else "") + ("，要告诉兄长" if tell else ""))
+        if not tell:
+            return False
+        asks = [f"{p.get('edge', '读完')}{p['place']}就{'停下来并告诉他' if p.get('stop') else '告诉他'}" for p in tell]
+        job["point_pending"] = {"ask": "；".join(asks), "stopped": stop, "t": now, "where": self._where_now(job)}
+        return True
+
+    # ------------------------------------------------------------ 什么时候主动说
+    def _share_why(self, job: dict, m: dict) -> str:
+        """读完这段想不想主动跟他说、为什么（空 = 不说）：刚读完开头、读到特别想说的、猜的揭晓了、读完一章、好一阵没说了。"""
+        if not self.cfg("share", True) or not self._owner_book(job) or job.get("pace") == "all":
+            return ""
+        k = job["pos"] - 1
+        segs = job["segs"]
+        base = R.base_title(segs[k].get("title", "")) if 0 <= k < len(segs) else ""
+        part_end = bool(base) and k + 1 < len(segs) and R.base_title(segs[k + 1].get("title", "")) != base
+        last = max([float(job.get("t0", 0)), float(job.get("talked_at", 0))] + [float(x["t"]) for x in job.get("told", [])])
+        if job["pos"] == 1 and not job.get("told"):
+            return "刚读了开头，想跟他说说开头给你的感觉"
         if m.get("tell") and int(m.get("intensity", 0)) >= 2:
-            await self._tell_mid(job, m)
+            return "读到这里特别想跟他说"
+        if m.get("guess_check"):
+            return f"你之前猜的揭晓了（{m['guess_check']}）"
+        if part_end:
+            return f"刚读完{base}"
+        if time.time() - last >= float(self.cfg("progress_minutes", 40.0)) * 60:
+            return "好一阵没跟他说这本书了，想跟他说说读到哪儿了、在想什么"
+        return ""
+
+    def _since_text(self, job: dict, limit: int = 6) -> str:
+        """上次跟他说起这本以后读的（按顺序；太多就留感受强的和最近的）。"""
+        allm = job["state"].get("moments", [])
+        ms = allm[int(job.get("told_upto", 0)):] or allm[-2:]
+        if len(ms) > limit:
+            keep = set(sorted(range(len(ms)), key=lambda i: (-int(ms[i].get("intensity", 0)), -i))[:limit - 2])
+            keep |= {len(ms) - 1, len(ms) - 2}
+            ms = [ms[i] for i in sorted(keep)]
+        out = []
+        for x in ms:
+            felt = x.get("feel") or (x["emotion"] if x["emotion"] != "平静" else "没什么波澜")
+            bit = f"- {x['label']}：{x['happened']}（{felt}，心里想：{x.get('thought', '')}）"
+            if x.get("guess_check"):
+                bit += f"〔{x['guess_check']}〕"
+            if x.get("quote") and int(x.get("intensity", 0)) >= 2:
+                bit += f" 打动你的一句「{x['quote']}」"
+            out.append(bit)
+        return "\n".join(out) or "（还没读到什么）"
+
+    def _guess_text(self, job: dict) -> str:
+        st = job["state"]
+        bits = []
+        if st.get("guesses"):
+            bits.append("你现在在猜：" + "；".join(st["guesses"]))
+        if st.get("people"):
+            bits.append("你对人物的看法：" + R.people_text(st))
+        return "\n".join(bits) + ("\n" if bits else "")
 
     async def finish(self, job: dict) -> None:
         what = f"{job['who']}发给她的{job['kind']}《{job['title']}》"
@@ -443,36 +614,101 @@ class Reader:
         day = self.p._day(now)
         return sum(1 for j in self.jobs.values() for t in j.get("shares", []) if self.p._day(t) == day)
 
-    async def _say(self, job: dict, prompt: str, record: str, said: str) -> bool:
+    async def _say(self, job: dict, prompt: str, record: str, said: str, kind: str = "mid",
+                   skip_minutes: float | None = None) -> tuple[bool, str]:
+        """主动私聊兄长。返回 (说了没有, 说的话 / 没说的原因)；说了就记进 told（下次别重复、知道从哪儿接着说）。"""
         basics = self._star("say_to_owner")
         if basics is None or not self._owner_book(job):
-            return False
+            return False, "不是兄长的书"
         try:
-            ok, why = await basics.say_to_owner(prompt, said=said, record=record)
+            try:
+                ok, why = await basics.say_to_owner(prompt, said=said, record=record, skip_minutes=skip_minutes)
+            except TypeError:  # 旧版 kaju_basics 没有 skip_minutes
+                ok, why = await basics.say_to_owner(prompt, said=said, record=record)
         except Exception as exc:  # noqa: BLE001
-            ok, why = False, f"{type(exc).__name__}: {exc}"
+            ok, why = False, f"出错了 {type(exc).__name__}: {exc}"
         if ok:
-            job["shares"].append(time.time())
+            self._mark_told(job, str(why or ""), kind)
+            job["shares"].append(job["told"][-1]["t"])
         else:
             self.p.log.info(f"kaju_learn: 读《{job['title']}》想跟兄长说，没说成：{why}")
-        return ok
+        return bool(ok), str(why or "")
 
-    async def _tell_mid(self, job: dict, m: dict) -> None:
+    def _mark_told(self, job: dict, text: str, kind: str) -> None:
+        job.setdefault("told", []).append({"t": time.time(), "text": text[:200], "pos": job["pos"], "kind": kind})
+        job["told"] = job["told"][-8:]
+        job["told_upto"] = len(job["state"].get("moments", []))
+
+    def note_reply(self, job: dict, reply: str) -> None:
+        """聊天里她说起了这本（对方问的时候）：也记进 told，主动说时别重复、从这儿接着说。"""
+        if str(reply or "").strip():
+            self._mark_told(job, str(reply).strip(), "chat")
+            self.save(job)
+
+    async def _tell_mid(self, job: dict, why: str) -> None:
+        """读到一半主动说。他正在聊就记着，聊完再说（一小时内）。"""
         now = time.time()
         if not self.cfg("share", True) or not self._owner_book(job) or job.get("pace") == "all":
             return
-        mids = [t for t in job.get("shares", []) if t < float(job.get("t_done") or 1e18)]
-        if len(mids) >= int(self.cfg("mid_shares", 2)) or self._shares_today(now) >= int(self.cfg("share_per_day", 4)):
+        mids = [float(x["t"]) for x in job.get("told", []) if x.get("kind") == "mid"]
+        cap = int(self.cfg("mid_shares", 0))
+        if (cap and len(mids) >= cap) or self._shares_today(now) >= int(self.cfg("share_per_day", 12)):
             return
-        if mids and now - mids[-1] < float(self.cfg("mid_gap_minutes", 90)) * 60:
+        opening = job["pos"] <= 1 and not job.get("told")
+        if not opening and mids and now - mids[-1] < float(self.cfg("mid_gap_minutes", 20.0)) * 60:
             return
-        quote = f"；打动你的一句「{m['quote']}」" if m.get("quote") else ""
-        seg_title = job["segs"][job["pos"] - 1]["title"] if job["pos"] else ""
-        prompt = SHARE_MID.format(title=job["title"], pos=job["pos"], n=job["n"], label=f"（{seg_title}）" if seg_title else "",
-                                  happened=m["happened"], emotion=m["emotion"], cause=m.get("cause", ""),
-                                  thought=m.get("thought", ""), quote=quote)
-        await self._say(job, prompt, RECORD_MID.format(title=job["title"], pos=job["pos"]),
-                        said=f"（佳树在读兄长大人发的《{job['title']}》，读到一半主动跟他说）")
+        prompt = SHARE_MID.format(title=job["title"], where=self._where_now(job), left=self._left_text(job), why=why,
+                                  since=self._since_text(job), guesses=self._guess_text(job),
+                                  told=self._told_text(job, "你前面已经跟他说过（这次别重复这些话、换个角度说新的）"))
+        ok, res = await self._say(job, prompt, RECORD_MID.format(title=job["title"], where=self._where_now(job)),
+                                  said=f"（佳树在读兄长大人发的《{job['title']}》，读到一半主动跟他说）", kind="mid")
+        old = job.get("mid_pending") or {}
+        if ok:
+            job.pop("mid_pending", None)
+        elif "正在跟她聊" in res or "出错" in res:
+            job["mid_pending"] = {"why": old.get("why") or why, "t": old.get("t") or now, "try": now}
+        else:
+            job.pop("mid_pending", None)  # 模型觉得现在不合适、夜里不说：这一下就算了
+
+    async def _tell_point(self, job: dict) -> None:
+        """读到他安排好的地方了：一定告诉他（他正在聊、出错了就过两分钟再说，12 小时内）。"""
+        pend = job.get("point_pending")
+        if not pend:
+            return
+        pend["try"] = time.time()
+        where = pend.get("where") or self._where_now(job)
+        stopped = bool(pend.get("stopped"))
+        prompt = SHARE_POINT.format(ask=pend["ask"], where=where,
+                                    stopped="，按他说的先停下了，没再往下读" if stopped else "，接着往下读着",
+                                    stop_say="、你按他说的停下了" if stopped else "", since=self._since_text(job),
+                                    guesses=self._guess_text(job),
+                                    told=self._told_text(job, "你前面已经跟他说过（这次别重复这些话、换个角度说新的）"))
+        ok, _ = await self._say(job, prompt, RECORD_POINT.format(ask=pend["ask"], where=where),
+                                said=f"（兄长大人让佳树{pend['ask']}，佳树读到了，主动告诉他）", kind="point",
+                                skip_minutes=float(self.cfg("point_skip_minutes", 0.75)))
+        if ok:
+            job.pop("point_pending", None)
+            self.p.log.info(f"kaju_learn: 《{job['title']}》读到安排的地方，告诉兄长了")
+
+    async def _flush(self, job: dict, now: float) -> bool:
+        """刚才没说成的：安排好要告诉他的（2 分钟再试、12 小时内）、中途想说的（3 分钟再试、1 小时内）。返回动过没有。"""
+        pend = job.get("point_pending")
+        if pend:
+            if now - float(pend.get("t", now)) > 12 * 3600:
+                job.pop("point_pending", None)
+                return True
+            if now - float(pend.get("try", 0)) >= 120:
+                await self._tell_point(job)
+                return True
+        mp = job.get("mid_pending")
+        if mp and not job.get("done"):
+            if now - float(mp.get("t", now)) > 3600:
+                job.pop("mid_pending", None)
+                return True
+            if now - float(mp.get("try", 0)) >= 180:
+                await self._tell_mid(job, mp.get("why") or "刚才想跟他说的")
+                return True
+        return False
 
     async def _tell_done(self, job: dict) -> None:
         job["tell_try"] = time.time()
@@ -481,14 +717,72 @@ class Reader:
             return
         f = job.get("final") or {}
         since = dt.datetime.fromtimestamp(job["t0"], self.p._tz).strftime("%m月%d日%H点")
-        prompt = SHARE_DONE.format(title=job["title"], n=job["n"], since=since, trail=R.trail(job["state"], 6, quotes=False),
+        prompt = SHARE_DONE.format(title=job["title"], since=since, trail=R.trail(job["state"], 6, quotes=False),
                                    after=f.get("after", ""), change=f"；看法的变化：{f['change']}" if f.get("change") else "",
-                                   best=f"；最难忘：{f['best']}" if f.get("best") else "")
+                                   best=f"；最难忘：{f['best']}" if f.get("best") else "",
+                                   told=self._told_text(job, "你读的时候已经跟他说过（这次别重复这些话）"))
         if job.get("cut"):  # 文件被截了：读完的只是拿到的那部分
             prompt += f"\n注意：文件太长，你只拿到了前 {job['chars']} 字，后面的没拿到——要跟他说清楚，别当成整本读完了。"
-        if await self._say(job, prompt, RECORD_DONE.format(title=job["title"]),
-                           said=f"（佳树读完了兄长大人发的《{job['title']}》，主动跟他说）"):
+        ok, _ = await self._say(job, prompt, RECORD_DONE.format(title=job["title"]),
+                                said=f"（佳树读完了兄长大人发的《{job['title']}》，主动跟他说）", kind="done",
+                                skip_minutes=float(self.cfg("point_skip_minutes", 0.75)))
+        if ok:
             job["finish_told"] = True
+
+    # ------------------------------------------------------------ 读书、看东西时攒下的更细的心情说法（2026-11-22 兄长：读书要真能学到东西）
+    def _feel_path(self) -> str:
+        return os.path.join(self.p._dir, "feelings.json")
+
+    def _feelings(self) -> list[dict]:
+        if getattr(self, "_feel_cache", None) is None:
+            try:
+                with open(self._feel_path(), encoding="utf-8") as f:
+                    self._feel_cache = [x for x in json.load(f) if isinstance(x, dict)]
+            except (OSError, ValueError):
+                self._feel_cache = []
+        return self._feel_cache
+
+    def keep_feeling(self, m: dict, src: str) -> None:
+        """这一下说得更细的心情、书里人表达心情的一句：攒起来（同样的不重复，最多 300 条）。"""
+        feel, expr = str(m.get("feel") or "").strip(), str(m.get("expr") or "").strip()
+        items = self._feelings()
+        if feel and any(x.get("feel") == feel for x in items):
+            feel = ""
+        if expr and (not m.get("expr_feel") or any(x.get("expr") == expr for x in items)):
+            expr = ""
+        if not feel and not expr:
+            return
+        items.append({"feel": feel, "emotion": m.get("emotion", ""), "expr": expr,
+                      "expr_feel": str(m.get("expr_feel") or "") if expr else "", "src": src[:30], "t": time.time()})
+        del items[:-300]
+        try:
+            tmp = self._feel_path() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(items, f, ensure_ascii=False)
+            os.replace(tmp, self._feel_path())
+        except OSError as exc:
+            self.p.log.info(f"kaju_learn: 心情说法没存成 {exc}")
+
+    def feelings_note(self, n_feel: int = 6, n_expr: int = 2, seed: int | None = None) -> str:
+        """给大脑看的：攒下的几个更细的心情说法 + 书里人表达心情的一两句（新的多、旧的也轮着出现）。"""
+        import random
+        items = self._feelings()
+        if not items:
+            return ""
+        rnd = random.Random(seed)
+
+        def pick(pool: list[dict], n: int) -> list[dict]:
+            if n <= 0 or not pool:
+                return []
+            recent = pool[-max(1, n // 2):]
+            rest = pool[:-len(recent)]
+            return rnd.sample(rest, min(len(rest), n - len(recent))) + recent
+
+        feels = pick([x for x in items if x.get("feel")], n_feel)
+        exprs = pick([x for x in items if x.get("expr") and x.get("expr_feel")], n_expr)
+        lines = [f"- {x['feel']}（{x['src']}时）" for x in feels]
+        lines += [f"- 书里有人这样说出一种心情：「{x['expr']}」——{x['expr_feel']}（{x['src']}时读到的）" for x in exprs]
+        return FEELINGS_NOTE.format(lines="\n".join(lines)) if lines else ""
 
     # ------------------------------------------------------------ 聊天时
     def done_text(self, job: dict) -> str:
@@ -541,9 +835,25 @@ class Reader:
             paused = {"fast": "（在读快一点）", "all": "（正在一口气读下去）"}.get(pace, "")
         if not paused and self._quiet(now):
             paused = "（晚上不读，明天接着读）"
-        return NOTE_READING.format(title=job["title"], who=job["who"], kind=job["kind"], chars=job["chars"], n=job["n"],
-                                   pos=job["pos"], label=f"（{job['segs'][job['pos'] - 1]['title']}）" if job["pos"] and job["segs"][job["pos"] - 1]["title"] else "",
-                                   paused=paused, trail=R.trail(st, 6), extra=extra)
+        extra += self._plan_text(job) + self._told_text(job, "你最近跟他说起这本书时说过（别再原样说一遍）")
+        return NOTE_READING.format(title=job["title"], who=job["who"], kind=job["kind"], chars=job["chars"],
+                                   where=self._where_now(job), paused=paused, left=self._left_text(job),
+                                   trail=R.trail(st, 6) or "（还没读到内容）", extra=extra)
+
+    def _plan_text(self, job: dict) -> str:
+        """对方给这本定的安排（还没到的）。"""
+        out = []
+        for p in job.get("plan") or []:
+            do = "停下并告诉他" if p.get("stop") and p.get("tell") else "停下" if p.get("stop") else "告诉他"
+            out.append(f"{p.get('edge', '读完')}{p.get('place') or R.place(job['segs'], int(p['pos']))}就{do}"
+                       f"（{'兄长大人' if p.get('by') == self._owner_chat() else '对方'}让的）")
+        return ("安排：" + "；".join(out) + "\n") if out else ""
+
+    def _told_text(self, job: dict, head: str, n: int = 3) -> str:
+        told = (job.get("told") or [])[-n:]
+        if not told:
+            return ""
+        return head + "：\n" + "\n".join(f"- {self._when(x['t'])[-5:]} {x['text'][:90]}" for x in told) + "\n"
 
     def set_pace(self, chat: str, action: str, title: str = "") -> str:
         pace = PACES.get(str(action or "").strip())
@@ -571,8 +881,8 @@ class Reader:
         return {"fast": f"好，《{job['title']}》读快一点（还剩 {left} 段）。",
                 "all": f"好，《{job['title']}》一口气读完（还剩 {left} 段，大概要几分钟）。读完你会主动说。",
                 "normal": f"好，《{job['title']}》照平时的速度接着读（还剩 {left} 段）。",
-                "paused": f"好，《{job['title']}》先停在第 {job['pos']} 段，说接着读再读。",
-                "stopped": f"好，《{job['title']}》不读了（读到第 {job['pos']} 段）。"}[pace]
+                "paused": f"好，《{job['title']}》先停在{self._where_now(job)}，说接着读再读。",
+                "stopped": f"好，《{job['title']}》不读了（读到{self._where_now(job)}）。"}[pace]
 
     def _prune(self, now: float) -> None:
         for jid, job in list(self.jobs.items()):
@@ -604,8 +914,13 @@ class Reader:
             if m is None:
                 continue
             R.absorb(state, m, f"[{seg['label']}]", time.time())
+            self.keep_feeling(m, f"看《{title[:12]}》" if title else "看视频")
         if not state["moments"]:
             return ""
         self.p.log.info(f"kaju_learn: 边看边想《{title}》{len(segments)} 段，看完：{state.get('impression', '')}")
+        checks = [m["guess_check"] for m in state["moments"] if m.get("guess_check")]
         return ("你是从头一段一段看下来的，边看边这么想（看前面的时候还不知道后面）：\n" + R.trail(state, 8)
-                + (f"\n看到最后的感觉：{state['impression']}" if state.get("impression") else ""))
+                + (f"\n看到最后的感觉：{state['impression']}" if state.get("impression") else "")
+                + (f"\n你对里面的人的看法：{R.people_text(state)}" if state.get("people") else "")
+                + (f"\n你边看边猜的，后来{'；'.join(checks)}" if checks else "")
+                + (f"\n看完还在猜：{'；'.join(state['guesses'])}" if state.get("guesses") else ""))

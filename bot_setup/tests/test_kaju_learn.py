@@ -455,7 +455,7 @@ fheart, fbasics, fshelf = FakeHeart(), FakeBasics(), FakeShelf()
 rctx = Context()
 rctx.stars = [type("M", (), {"star_cls": s})() for s in (fheart, fbasics, fshelf)]
 pr = lm.KajuLearn(rctx, {"embed": {"enable": False}, "first_delay_seconds": 9999,
-                         "reading": {"segment_chars": 800, "quiet_start": 0, "quiet_end": 0}})
+                         "reading": {"segment_chars": 800, "quiet_start": 0, "quiet_end": 0, "first_segments": 1}})
 seen_prompts = []
 
 
@@ -493,7 +493,8 @@ expect("同一本再发一次：不重开", (run(pr.start_reading("雨夜", nove
 expect("不像故事的不一段段读", run(pr.start_reading("作业要求", "第一条：请按时提交。\n" * 800, ev_book, name="a.txt")), "")
 
 note = pr.reader.note_for(f"p{OWNER}", "在看吗")
-expect("聊天时：正在读的", ("【你正在读的】" in note, f"第 1/{job['n']} 段" in note), (True, True))
+expect("聊天时：正在读的（按章节说读到哪儿）", ("【你正在读的】" in note, f"现在读到{pr.reader._where_now(job)}" in note, "第 1/" in note),
+       (True, True, False))
 expect("别的聊天里没提书名：不给", pr.reader.note_for(f"g{G}", "今天好热"), "")
 expect("别的聊天里提到书名：给", "【你正在读的】" in pr.reader.note_for(f"g{G}", "雨夜好看吗"), True)
 reqb = ProviderRequest(system_prompt="人设")
@@ -512,6 +513,7 @@ expect("深夜不读", run(pr.reader.tick(time.time())), 0)
 pr.reader.cfg = lambda key, default, _o=lm.Reader.cfg.__get__(pr.reader): {"quiet_start": 0, "quiet_end": 0}.get(key, _o(key, default))
 
 # 一口气读完
+fbasics.said.clear()
 expect("节奏：一口气读完", pr.reader.set_pace(f"p{OWNER}", "一口气读完").startswith("好，《雨夜》一口气读完"), True)
 expect("节奏：没听懂", pr.reader.set_pace(f"p{OWNER}", "飞起来").startswith("没听懂"), True)
 job["next_at"] = 0
@@ -523,7 +525,7 @@ voiced = [v for v, _ in fheart.felt if v["voice"]]
 expect("强烈的那几下带心声（有上限，读完那一下另算）", (1 <= len(voiced) <= 5, all(v["intensity"] >= 2 for v in voiced),
                                                      voiced[-1]["voice"] == "读完了，心里空空的"), (True, True, True))
 expect("心情：在哪儿读的", fheart.felt[0][1]["place"], "读《雨夜》")
-expect("一口气读的时候中途不打扰，读完说一声", ([r for _, r in fbasics.said if "读到第" in r], any("读完了" in r for _, r in fbasics.said)),
+expect("一口气读的时候中途不打扰，读完说一声", ([r for _, r in fbasics.said if "时主动私聊了他" in r], any("读完了" in r for _, r in fbasics.said)),
        ([], True))
 expect("读完：珍藏换成读完的样子", (fshelf.updated[0][0], "情节" in fshelf.updated[0][2]), ("雨夜", True))
 expect("读完：学进知识本", any(j["key"].startswith("read:") for j in pr._state["queue"]) or any(k.startswith("read:") for k in pr._state["done_docs"]), True)
@@ -597,7 +599,7 @@ run(pr.reader.tick(time.time()))
 expect("同一次停只说一次", sum(1 for _, r in fbasics.said if "小镇" in r and "停在" in r), 1)
 # 没说成（他正在聊）：过一阵再试
 pr.reader.set_pace(f"p{OWNER}", "接着读", "小镇")
-jt["pace_by"], jt["pace_at"], jt["pace"] = "", time.time(), "paused"  # 不知道谁停的（比如手动改的文件）
+jt["pace_by"], jt["pace_at"], jt["pace"] = "", time.time() + 1, "paused"  # 不知道谁停的（比如手动改的文件）；+1：Windows 时钟粗，别和上一次停的时间撞上
 fbasics.ok = False
 run(pr.reader.tick(time.time()))
 expect("没说成：没记成说过", jt.get("stop_told", "").endswith(str(jt["pace_at"])), False)
@@ -654,7 +656,8 @@ ev_q = AstrMessageEvent(sender=OWNER, text="小镇读到哪了", name="晴川")
 run(pr.inject(ev_q, ProviderRequest(system_prompt="人设")))
 rsp = LLMResponse(f"佳树读到第 9 段了，车站那里好难过&&sad&&")
 run(pr.reading_check(ev_q, rsp))
-expect("核对：给的是实际进度和读过的", (f"读完了第 1~{jt['pos']} 段" in checked[-1], "- 第1段" in checked[-1], "第3段" in checked[-1]), (True, True, False))
+expect("核对：给的是实际进度和读过的", (f"读完了第 1~{jt['pos']} 段" in checked[-1], f"- {jt['state']['moments'][0]['label']}：" in checked[-1],
+                                  "第三章" in checked[-1]), (True, True, False))
 expect("核对：说错的改成实际的（表情还在）", rsp.completion_text, f"佳树读到第 {jt['pos']} 段了，还没往下读&&sad&&")
 pr.reader.set_pace(f"p{OWNER}", "先停一下", "小镇")
 ev_p = AstrMessageEvent(sender=OWNER, text="慢慢读吧", name="晴川")
@@ -1095,6 +1098,93 @@ lives = [{"line": f"学来的{k}", "src": "live", "vec": [1.0, 0.0]} for k in ra
 expect("例句：一轮最多 2 句学来的", [b["src"] for b in RP.pick(lives, [1.0, 0.0], 5, max_live=2)],
        ["live", "live", "curated", "curated", "curated"])
 expect("例句：0 = 不用", "live" in [b["src"] for b in RP.pick(lives, [1.0, 0.0], 5, max_live=0)], False)
+
+# ---- 2026-11-22 兄长：开始读先说一声；按章节说进度；“读完第二部告诉我 / 停下”真做到；中途主动说、别重复；读书学更细的心情说法
+segs_t = [{"title": "第一卷 第一部 分身（1）"}, {"title": "第一卷 第一部 分身（2）"}, {"title": "第一卷 第二部 看星星的人（1）"},
+          {"title": "第一卷 第二部 看星星的人（2）"}, {"title": "第一卷 第二部 看星星的人（3）"}, {"title": "第一卷 尾声 伴我同行"}]
+expect("章节：按书里的叫法说", (R.where(segs_t, 3), R.where(segs_t, 5)), ("第一卷 第二部 看星星的人（这部分读到 2/3）", "第一卷 尾声 伴我同行"))
+expect("章节：没有标题说几成", R.where([{"title": ""}] * 4, 1), "全书大约 50% 的地方")
+expect("找地方：第二部 = 第2部、读完 / 读到", (R.find_point(segs_t, "第2部", 0)[0], R.find_point(segs_t, "第二部", 0, "读到")[0]), (5, 2))
+expect("找地方：这一章、一半、第几段", (R.find_point(segs_t, "这一章", 3)[0], R.find_point(segs_t, "一半", 0)[0],
+                                     R.find_point(segs_t, "第4段", 0)[0]), (5, 3, 4))
+expect("找地方：没有就说没有", R.find_point(segs_t, "第五部", 0), (None, "书里没有叫“第五部”的章节"))
+
+for j in pr.reader.jobs.values():
+    j["next_at"] = time.time() + 99999
+pr.reader.cfg = lambda key, default, _o=lm.Reader.cfg.__get__(pr.reader): {"first_segments": 0, "quiet_start": 0, "quiet_end": 0}.get(key, _o(key, default))
+pr._ask = good_ask
+fbasics.said.clear()
+fbasics.ok = True
+book3 = ("第一部 雨\n" + "「下雨了」她说。\n" * 300 + "\n第二部 车站\n" + "车站人很多。\n" * 300
+         + "\n第三部 回家\n" + "「回家吧」她说。\n" * 300)
+out3 = run(pr.start_reading("三部曲", book3, ev_book, name="三部曲.txt"))
+jb = next(j for j in pr.reader.jobs.values() if j["title"] == "三部曲")
+expect("开始：先回一声、还没读内容（不先读再回）", (jb["pos"], "正要开始读" in out3, "第二部 车站" in out3), (0, True, True))
+expect("开始：开头马上在后台读", jb["next_at"] < time.time() + 40, True)
+r1 = run(pr.reading_plan(ev_book, "第二部", "停下并告诉对方"))
+expect("安排：定下了（读完第二部停下并告诉他）", (r1.startswith("好，《三部曲》读完第二部 车站就停下来并告诉对方"), len(jb["plan"])), (True, 1))
+expect("安排：书里没有的照实说、没定下", ("书里没有叫“第五部”的章节" in run(pr.reading_plan(ev_book, "第五部", "告诉对方")), len(jb["plan"])),
+       (True, 1))
+expect("安排：聊天时给她看", "安排：读完第二部 车站就停下并告诉他" in pr.reader._note(jb, time.time()), True)
+jb["next_at"] = 0
+run(pr.reader.tick(time.time()))
+expect("读完开头：主动说开头的感觉", any("刚读了开头" in p for p, _ in fbasics.said), True)
+expect("进度按章节说", ("第一部 雨" in jb["state"]["moments"][0]["label"], "段" in jb["state"]["moments"][0]["label"]), (True, False))
+expect("说过的记进 told", jb["told"][-1]["kind"], "mid")
+end2 = R.find_point(jb["segs"], "第二部", 0)[0]
+for _ in range(12):
+    if jb["pace"] == "paused" or jb.get("done"):
+        break
+    jb["next_at"] = 0
+    run(pr.reader.tick(time.time()))
+expect("读到安排的地方：真停下了", (jb["pace"], jb["pos"], jb["pace_by"]), ("paused", end2, f"p{OWNER}"))
+expect("读到安排的地方：主动告诉他", any("读完第二部 车站就停下来并告诉他" in r for _, r in fbasics.said), True)
+expect("告诉他的材料：上次说起以后读的 + 别说第几段", ("上次跟他说起这本书以后" in fbasics.said[-1][0], "别说“第几段”" in fbasics.said[-1][0]), (True, True))
+expect("停着：兄长自己安排的不另外报停", sum(1 for _, r in fbasics.said if "停在" in r and "三部曲" in r), 0)
+expect("已经读过的地方：照实说", "你已经读过那儿了" in run(pr.reading_plan(ev_book, "第一部", "告诉对方")), True)
+# 停着时再给安排 = 接着读到那儿；他正在聊没说成 → 记着，过两分钟再说
+r2 = run(pr.reading_plan(ev_book, f"第{end2 + 1}段", "告诉对方"))
+expect("停着时给安排：接着读", (jb["pace"], "现在接着读" in r2), ("normal", True))
+fbasics.ok = False
+for _ in range(3):
+    jb["next_at"] = 0
+    run(pr.reader.tick(time.time()))
+    if jb.get("point_pending"):
+        break
+expect("他正在聊：要说的记着", bool(jb.get("point_pending")), True)
+fbasics.ok = True
+jb["point_pending"]["try"] = 0
+jb["next_at"] = time.time() + 9999
+run(pr.reader.tick(time.time()))
+expect("过两分钟再说：说成了", (jb.get("point_pending"), jb["told"][-1]["kind"]), (None, "point"))
+# 主动说的话别重复：前面说过的交给她看
+jb["told"][-1]["text"] = "车站那里好难过呀"
+expect("前面说过的给她看", "车站那里好难过呀" in pr.reader._note(jb, time.time()), True)
+# 大脑那一轮：她说“读完第三部就告诉兄长”却没调工具 → 替她定下；她说的也记进 told
+pr.reader.set_pace(f"p{OWNER}", "先停一下", "三部曲")
+
+
+async def plan_generate(pid, prompt, system="", timeout=0):
+    return json.dumps({"wrong": [], "fixed": "", "commit": "", "plan": {"at": "第三部", "then": "告诉对方", "edge": "读完"}},
+                      ensure_ascii=False)
+
+
+pr.body.generate = plan_generate
+ev_b = AstrMessageEvent(sender=OWNER, text="读完第三部跟我说一声", name="晴川")
+run(pr.inject(ev_b, ProviderRequest(system_prompt="人设")))
+ev_b.set_extra("_ks_brain", True)
+run(pr.after_reply(ev_b, LLMResponse("好呀，佳树读完第三部就告诉兄长大人")))
+expect("大脑那轮：答应了却没定 → 替她定下", [p["place"] for p in jb.get("plan", [])], ["第三部 回家"])
+expect("大脑那轮：她说的记进 told", jb["told"][-1]["text"], "好呀，佳树读完第三部就告诉兄长大人")
+# 读书学更细的心情说法
+pr.reader.keep_feeling({"feel": "替舜憋屈", "emotion": "难过", "expr": "说不出恭喜就已经够难受了", "expr_feel": "嫉妒又放不下朋友"}, "读《九月》")
+pr.reader.keep_feeling({"feel": "替舜憋屈", "emotion": "难过"}, "读《九月》")
+expect("心情说法：同样的不重复", sum(1 for x in pr.reader._feelings() if x.get("feel") == "替舜憋屈"), 1)
+fnote = pr.reader.feelings_note(seed=1)
+expect("心情说法：给大脑看", ("替舜憋屈" in fnote, "说不出恭喜就已经够难受了" in fnote), (True, True))
+reqf = ProviderRequest(system_prompt="人设")
+run(pr.inject(AstrMessageEvent(sender=OTHER, text="今天好热", name="小雨"), reqf))
+expect("心情说法：聊天时带上", "更细的心情说法" in reqf.system_prompt, True)
 
 
 print("\nALL OK" if not failures else f"\n{len(failures)} FAILED: {failures}")

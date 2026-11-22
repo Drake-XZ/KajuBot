@@ -52,6 +52,9 @@ PROMPT = """有人给一个叫佳树的初三女生发了这个{what}{title}。�
  "emotion": "整个{verb}下来最主要的感受，从感受表里选一个",
  "intensity": 1,
  "cause": "为什么有这种感受，一句话，25 字以内，写清是什么内容",
+ "feel_fine": "把这份最主要的感受说得更细，12 字以内（比上面那个词具体：替谁、对谁、几种心情搅在一起，比如“替那只猫着急”“好笑又有点心酸”）；没什么感觉就留空",
+ "expr": "里面有人（台词、歌词、字幕、旁白）把一种不好说清的心情说出来、说得很准的一句，原样照抄，40 字以内；没有就留空",
+ "expr_feel": "上面那句说的是什么心情，16 字以内，说细一点；expr 留空它也留空",
  "topic": "这份感受来自哪样具体的东西（作品、歌、游戏、动物、话题……）的名字，12 字以内；没什么感觉就留空",
  "kind": "大类，只能从这些里选：{kinds}；没什么感觉就留空",
  "genre": "它是什么样的，能概括同一类东西的短说法，8 字以内（比如“搞笑视频”“治愈日常”）；没什么感觉就留空",
@@ -738,7 +741,8 @@ def parse(text: str) -> dict | None:
             "after": _s(d.get("after"), 200), "emotion": _s(d.get("emotion"), 4) or "平静",
             "intensity": _n(d.get("intensity")), "cause": _s(d.get("cause"), 40), "topic": _s(d.get("topic"), 16),
             "kind": _s(d.get("kind"), 8), "genre": _s(d.get("genre"), 12), "voice": _s(d.get("voice"), 60),
-            "about": _s(d.get("about"), 24)}
+            "about": _s(d.get("about"), 24), "feel_fine": _s(d.get("feel_fine"), 16), "expr": _s(d.get("expr"), 50),
+            "expr_feel": _s(d.get("expr_feel"), 20)}
 
 
 def render(p: dict, duration: str, kind: str, top: int = 2) -> str:

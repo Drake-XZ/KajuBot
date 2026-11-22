@@ -222,8 +222,13 @@
       },
       "first_segments": {
         "type": "int",
-        "description": "收到时当场先读几段",
-        "default": 1
+        "description": "收到时当场先读几段（0 = 先回一声“开始读了”，开头过 start_delay_seconds 秒在后台读）",
+        "default": 0
+      },
+      "start_delay_seconds": {
+        "type": "float",
+        "description": "先回一声以后，过几秒开始读开头",
+        "default": 30
       },
       "quiet_start": {
         "type": "int",
@@ -257,32 +262,47 @@
       },
       "share": {
         "type": "bool",
-        "description": "兄长大人发的书：读到特别想说的地方、读完时主动私聊他",
+        "description": "兄长大人发的书：读完开头、读到特别想说的、猜的揭晓了、读完一章、好一阵没说了、读完时主动私聊他",
         "default": true
       },
       "mid_shares": {
         "type": "int",
-        "description": "一本书读到一半最多主动说几次",
-        "default": 2
+        "description": "一本书读到一半最多主动说几次（0 = 不限，由她想不想说定）",
+        "default": 0
       },
       "mid_gap_minutes": {
         "type": "float",
         "description": "读到一半主动说，两次至少隔多久（分钟）",
-        "default": 90
+        "default": 20
+      },
+      "progress_minutes": {
+        "type": "float",
+        "description": "这么多分钟没跟兄长说起这本书（他没问、她也没说），读完下一段就主动说说读到哪儿了",
+        "default": 40
+      },
+      "point_skip_minutes": {
+        "type": "float",
+        "description": "读到他安排的地方、读完时：他这么多分钟内刚说过话就等一下再说（中途想说的照 browse.share_skip_minutes）",
+        "default": 0.75
       },
       "share_per_day": {
         "type": "int",
         "description": "读书相关的主动私聊每天最多几次",
-        "default": 4
+        "default": 12
       },
       "done_note_hours": {
         "type": "float",
         "description": "读完以后多少小时内，在那个聊天里还给她看【你刚读完的】",
         "default": 12
       },
+      "feelings": {
+        "type": "bool",
+        "description": "读书、看视频时攒下更细的心情说法和书里人表达心情的句子，聊天时挑几条给大脑参考",
+        "default": true
+      },
       "check": {
         "type": "bool",
-        "description": "回复前把她说的读书进度、情节对着实际核对（说错的改成实际的；答应了接着读/先停却没改的，替她改过来）",
+        "description": "回复前把她说的读书进度、情节对着实际核对（说错的改成实际的；答应了接着读/先停/读到哪儿就停或告诉他却没改的，替她改过来）",
         "default": true
       },
       "check_provider_id": {

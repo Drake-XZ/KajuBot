@@ -323,6 +323,16 @@ class Senses:
         if who:
             self._felt.setdefault(who, []).append(p)
             self._felt[who] = self._felt[who][-8:]
+        if int(p.get("intensity") or 0) >= 1 and (p.get("feel_fine") or p.get("expr")):  # 更细的心情说法攒进知识那边（11-22）
+            try:
+                from kaju_core import parts
+                learn = parts.find("keep_feeling")
+                if learn is not None:
+                    verb = "听" if kind == "audio" else "看"
+                    learn.keep_feeling({"feel": p.get("feel_fine", ""), "emotion": p.get("emotion", ""), "expr": p.get("expr", ""),
+                                        "expr_feel": p.get("expr_feel", "")}, f"{verb}《{title[:12]}》" if title else f"{verb}{'歌' if kind == 'audio' else '视频'}")
+            except Exception as e:  # noqa: BLE001
+                self.log.info(f"kaju_basics: 心情说法没攒成 {type(e).__name__}: {e}")
         return omni.render(p, media.fmt_duration(duration), kind, int(cfg.get("omni_moments", 2)))
 
     def take_felt(self, who: str, max_age: float = 1800) -> list[dict]:

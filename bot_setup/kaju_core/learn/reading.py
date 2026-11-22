@@ -87,6 +87,110 @@ def split_text(text: str, target: int = 3000, max_segments: int = 40) -> list[di
     return segs
 
 
+SUFFIX = re.compile(r"（(\d+)）$")
+
+
+def base_title(title: str) -> str:
+    """切段时加的“（3）”去掉：同一章 / 同一部的几段是一个名字。"""
+    return SUFFIX.sub("", str(title or "")).strip()
+
+
+def where(segs: list[dict], k: int) -> str:
+    """第 k 段（从 0 数）在书里的哪儿，按书里的章节说（2026-11-22 兄长：别说程序切的“第 N 段”）。
+    “第一卷 第二部 看星星的人（这一部读到 3/22）”；没有章节标题的书说读到全书大约几成。"""
+    n = len(segs)
+    if not n:
+        return ""
+    k = max(0, min(k, n - 1))
+    base = base_title(segs[k].get("title", ""))
+    if not base:
+        return f"全书大约 {max(1, round((k + 1) * 100 / n))}% 的地方"
+    group = [i for i, s in enumerate(segs) if base_title(s.get("title", "")) == base]
+    if len(group) <= 1:
+        return base
+    return f"{base}（这部分读到 {group.index(k) + 1}/{len(group)}）" if k in group else base
+
+
+def place(segs: list[dict], k: int, edge: str = "读完") -> str:
+    """安排里说的那个地方：读完第 k 段（1 起）/ 读到第 k+1 段开头。正好是一章的头尾就只说章名。"""
+    i = k - 1 if edge == "读完" else k
+    if not 0 <= i < len(segs):
+        return where(segs, max(0, min(i, len(segs) - 1)))
+    base = base_title(segs[i].get("title", ""))
+    group = [j for j, s in enumerate(segs) if base_title(s.get("title", "")) == base]
+    if base and group and i == (group[-1] if edge == "读完" else group[0]):
+        return base
+    return where(segs, i)
+
+
+def parts(segs: list[dict]) -> list[str]:
+    """书里有哪些章节（按顺序、不重复）。"""
+    out: list[str] = []
+    for s in segs:
+        b = base_title(s.get("title", ""))
+        if b and b not in out:
+            out.append(b)
+    return out
+
+
+CN_NUM = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _cn_int(s: str) -> int | None:
+    s = str(s or "").translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+    if s.isdigit():
+        return int(s)
+    if not s or any(ch not in CN_NUM for ch in s):
+        return None
+    if s == "十":
+        return 10
+    if "十" in s:
+        a, _, b = s.partition("十")
+        return (CN_NUM.get(a, 1) if a else 1) * 10 + (CN_NUM.get(b, 0) if b else 0)
+    return CN_NUM.get(s) if len(s) == 1 else None
+
+
+def _norm(s: str) -> str:
+    """比章节名用：去空白和标点，数字统一成阿拉伯数字（“第二部”和“第2部”算一样）。"""
+    s = re.sub(r"[\s·、，,。.：:《》「」“”\"'（）()]+", "", str(s or ""))
+    return re.sub(r"第([0-9０-９零〇一二两三四五六七八九十]+)", lambda m: f"第{_cn_int(m.group(1)) if _cn_int(m.group(1)) is not None else m.group(1)}", s)
+
+
+def find_point(segs: list[dict], at: str, pos: int, edge: str = "读完") -> tuple[int | None, str]:
+    """对方说的“读到 / 读完 X”是第几段读完以后（返回 读完第几段时，1 起；0 = 现在就到了）。
+    at：章节名（“第二部”“看星星的人”）、“这一章 / 这部分”、“一半”“三分之二”、“第 25 段”。
+    edge：读完（X 整个读完）/ 读到（刚读到 X 开头就停）。认不出来返回 (None, 原因)。"""
+    n = len(segs)
+    at = str(at or "").strip()
+    if not at or not n:
+        return None, "没说读到哪儿"
+    m = re.fullmatch(r"第?\s*([0-9０-９零〇一二两三四五六七八九十]+)\s*段", at)
+    num = _cn_int(m.group(1)) if m else None
+    if num:
+        return min(n, num), ""
+    frac = {"一半": 0.5, "半本": 0.5, "三分之一": 1 / 3, "三分之二": 2 / 3, "四分之一": 0.25, "四分之三": 0.75}
+    for word, f in frac.items():
+        if word in at:
+            return max(1, round(n * f)), ""
+    pm = re.search(r"(\d{1,3})\s*[%％]", at)
+    if pm:
+        return max(1, min(n, round(n * int(pm.group(1)) / 100))), ""
+    cur = max(0, min(pos, n) - 1) if pos else 0
+    if re.fullmatch(r"(这|本|当前|现在这)(一)?(章|节|部分?|卷|回|话|篇)", at):
+        base = base_title(segs[cur].get("title", "")) if pos else base_title(segs[0].get("title", ""))
+        group = [i for i, s in enumerate(segs) if base_title(s.get("title", "")) == base] or [cur]
+        return group[-1] + 1, ""
+    key = _norm(at)
+    if not key:
+        return None, f"认不出“{at}”是书里哪儿"
+    hit = [i for i, s in enumerate(segs) if key in _norm(s.get("title", ""))]
+    if not hit:
+        return None, f"书里没有叫“{at}”的章节"
+    if edge == "读到":
+        return hit[0], ""
+    return hit[-1] + 1, ""
+
+
 def is_story(text: str, name: str = "") -> bool:
     """像不像要一点点读的长篇故事：电子书、有好几个章节标题、对话很多。资料、作业、代码还是一口气读。"""
     if (name or "").lower().endswith(".epub"):
@@ -118,7 +222,7 @@ def state_text(state: dict, limit: int = 1600) -> str:
         for m in early:
             lines.append(f"- {m['label']}：{m['happened'][:40]}")
         for m in late:
-            lines.append(f"- {m['label']}：{m['happened']}（你当时{m['emotion']}，心里想：{m['thought']}）")
+            lines.append(f"- {m['label']}：{m['happened']}（你当时{m.get('feel') or m['emotion']}，心里想：{m['thought']}）")
     out = "\n".join(lines)
     while len(out) > limit and len(lines) > 4:  # 太长了：最早的那几段先省掉
         lines.pop(3 if state.get("people") else 2)
@@ -143,17 +247,19 @@ READ_PROMPT = """佳树在读{what}，现在读到第 {i}/{n} 段{seg}。
 - happened：这一段讲了什么，按发生的说清楚人物和事（≤80字，以后回想用，平平地写）
 - emotion：她读这段的感受，从这些里选一个：{emotions}；intensity：0 没什么感觉 / 1 有一点 / 2 明显 / 3 很强烈（多数段落是 0~1，真被打动、吓到、揪心、笑出来才 2 以上）
 - cause：为什么（≤25字，具体到哪件事）
+- feel：把她这一下的心情说得更细（≤12字，比上面那个词具体：是替谁、对谁、几种心情搅在一起，比如"替舜憋屈""又心疼又有点气"；intensity 是 0 就 ""）
 - thought：读到这里她心里冒出来的一两句（≤60字，她的口吻、自称"佳树"）：替谁担心、喜欢上谁、吐槽、猜后面都行；平平淡淡就写短一点；心情用大白话，不用"仿佛""宛如"，不拿身体反应代替心情。
   书里的人用书里的叫法（"哥哥""妹妹"或名字）——"兄长大人"只指她自己的哥哥（现实里跟她聊天的那个人），别拿来叫书里的人；
   也不用每段都扯到自己和兄长大人，真被戳到、真想到了才提
 - people：这段里出场、她有了新看法的人物 {{"名字": "她现在对TA的看法（≤20字）"}}，没有就 {{}}
 - guess：她猜后面会怎样（≤30字，没有就 ""）；guess_check：只有上面【你猜过、还没揭晓的】里的某一条在这段真的揭晓了，才写"猜对了：…"或"猜错了：…"，否则写 ""
 - quote：这段里最打动她的一句原文（原样照抄，≤40字，没有就 ""）
+- expr / expr_feel：这段里有人把一种不好说清的心情说出来、或者表现得很准的一句原文（原样照抄，≤40字）和那是什么心情（≤16字，说细一点）；没有就都 ""（她从书里学人是怎么表达心情的）
 - impression：读到现在她对这本书/这个视频整体的感觉（≤40字，会随着读下去变）
 - interest：她现在有多想接着读 0~3（3 = 停不下来）
 - tell：读到这里是不是忍不住要马上放下书去跟兄长大人说（一本书里也就一两处：真被狠狠打动、吓到、气到，或者特别想跟他讨论；寻常的感动、好笑都是 false）
 
-输出：{{"happened": "", "emotion": "平静", "intensity": 0, "cause": "", "thought": "", "people": {{}}, "guess": "", "guess_check": "", "quote": "", "impression": "", "interest": 2, "tell": false}}"""
+输出：{{"happened": "", "emotion": "平静", "intensity": 0, "cause": "", "feel": "", "thought": "", "people": {{}}, "guess": "", "guess_check": "", "quote": "", "expr": "", "expr_feel": "", "impression": "", "interest": 2, "tell": false}}"""
 
 FINISH_PROMPT = """佳树刚把{what}从头读到了尾。下面是她一路读下来的样子：
 {state}
@@ -281,6 +387,7 @@ def parse_moment(raw: str) -> dict | None:
     return {
         "happened": _t(d.get("happened"), 110), "emotion": emo if emo in EMOTIONS else "平静",
         "intensity": _i(d.get("intensity"), 0, 3, 1), "cause": _t(d.get("cause"), 36), "thought": _t(d.get("thought"), 90),
+        "feel": _t(d.get("feel"), 16), "expr": _t(d.get("expr"), 50), "expr_feel": _t(d.get("expr_feel"), 20),
         "people": {_t(k, 12): _t(v, 28) for k, v in list(people.items())[:6] if _t(k, 12) and _t(v, 28)},
         "guess": _t(d.get("guess"), 40), "guess_check": _t(d.get("guess_check"), 50), "quote": _t(d.get("quote"), 50),
         "impression": _t(d.get("impression"), 56), "interest": _i(d.get("interest"), 0, 3, 2),
@@ -336,7 +443,8 @@ def trail(state: dict, max_lines: int = 8, quotes: bool = True) -> str:
         m = ms[k]
         bit = f"{m['label']}：{m['happened']}"
         if m.get("thought"):
-            bit += f"（你读到这里{m['emotion'] if m['emotion'] != '平静' else ''}，心里想：{m['thought']}）"
+            felt = m.get("feel") or (m["emotion"] if m["emotion"] != "平静" else "")
+            bit += f"（你读到这里{felt}，心里想：{m['thought']}）"
         if m.get("guess_check"):
             bit += f"〔{m['guess_check']}〕"
         if quotes and m.get("quote") and int(m.get("intensity", 0)) >= 2:

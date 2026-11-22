@@ -44,7 +44,7 @@ from kaju_core.learn.mind import LearnMind  # noqa: E402
 from kaju_astr import AstrBody, plugin_log  # noqa: E402
 
 
-@register(PLUGIN_NAME, "dsh", "学到的东西：聊天、看过的视频和书、听过的歌、上网查过的都能让她学到东西，攒成自己懂的东西，越学越懂", "1.7.0")
+@register(PLUGIN_NAME, "dsh", "学到的东西：聊天、看过的视频和书、听过的歌、上网查过的都能让她学到东西，攒成自己懂的东西，越学越懂", "1.9.0")
 class KajuLearn(LearnMind, Star):
     def __init__(self, context: Context, config: dict | None = None):
         Star.__init__(self, context)
@@ -96,6 +96,18 @@ class KajuLearn(LearnMind, Star):
             title(string): 书名（只在读好几本时才需要）
         """
         return await LearnMind.reading_pace(self, event, action, title)
+
+    @filter.llm_tool(name="reading_plan")
+    async def reading_plan(self, event: AstrMessageEvent, at: str, then: str = "告诉对方", edge: str = "读完", title: str = ""):
+        """给你在读的那本长书定个安排：对方让你读到 / 读完书里某处就停下、或者读到那儿就告诉他时用（比如“读完第二部跟我说一声”“今天读到一半就停”“读完这一章就先别读了”）。定好了到时候会真的停、真的主动告诉他；定不了（书里没那个地方）就照实说。
+
+        Args:
+            at(string): 书里的哪儿：章节名（“第二部”“看星星的人”）、“这一章”、“一半”“三分之二”，或者“第25段”
+            then(string): 停下 / 告诉对方 / 停下并告诉对方
+            edge(string): 读完（那部分整个读完，默认）/ 读到（刚读到那儿就停）
+            title(string): 书名（只在读好几本时才需要）
+        """
+        return await LearnMind.reading_plan(self, event, at, then, edge, title)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("佳树学到的")

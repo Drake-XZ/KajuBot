@@ -125,10 +125,11 @@ def load_bank(path: str = "", learned_path: str | None = None) -> list[dict]:
     files = [(path, False)] + ([(learned_path, True)] if learned_path else [])
     mt = []
     for f, _ in files:
-        try:
-            mt.append(os.path.getmtime(f))
+        try:  # 改动时间 + 大小：同一毫秒里改了两次（删一句例句）时间可能一样，大小会变
+            st = os.stat(f)
+            mt.append((st.st_mtime_ns, st.st_size))
         except OSError:
-            mt.append(0.0)
+            mt.append((0, 0))
     key = (path, learned_path, tuple(mt))
     if key != _bank_cache[0]:
         _bank_cache = (key, [b for f, lr in files if os.path.exists(f) for b in _read_bank(f, lr)])
