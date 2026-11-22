@@ -1,4 +1,4 @@
-"""写手看到的长前文（kaju_core.voice.longctx，2026-11-17 第 7 轮）。
+"""回复器看到的长前文（kaju_core.voice.longctx，2026-11-17 第 7 轮为写手做的，11-21 起给回复器用）。
 
     <venv>\\Scripts\\python.exe -I D:\\JiashuBot\\bot_setup\\tests\\test_longctx.py
 """

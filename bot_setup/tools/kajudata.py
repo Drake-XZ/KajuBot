@@ -88,40 +88,6 @@ def _keeper_port() -> int:
     return 0
 
 
-def close_keeper(wait: float = 15) -> bool:
-    """请抖音常驻浏览器自己正常关掉（CDP Browser.close，和点"关闭"一样，登录照样存着）。关掉了返回 True。"""
-    import base64
-    import socket
-    import urllib.request
-
-    port = _keeper_port()
-    if not port:
-        return keeper_running() == []
-    try:
-        ver = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5).read())
-        path = "/" + ver["webSocketDebuggerUrl"].split("/", 3)[3]
-        s = socket.create_connection(("127.0.0.1", port), timeout=5)
-        key = base64.b64encode(os.urandom(16)).decode()
-        s.sendall((f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                   f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
-        if b" 101 " not in s.recv(4096):
-            return False
-        data = json.dumps({"id": 1, "method": "Browser.close"}).encode()
-        mask = os.urandom(4)
-        head = bytes([0x81, 0x80 | len(data)]) if len(data) < 126 else bytes([0x81, 0xFE]) + len(data).to_bytes(2, "big")
-        s.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
-        s.close()
-    except Exception as e:  # noqa: BLE001
-        print(f"没能请常驻浏览器关掉：{e}")
-        return False
-    end = time.time() + wait
-    while time.time() < end:
-        if keeper_running() == []:
-            return True
-        time.sleep(1)
-    return False
-
-
 # ---------------------------------------------------------------- deploy
 
 # 哪一块由哪些插件用（热重载那些插件，它们开头的 kaju_core.fresh / kaju_platforms.fresh 就会换上新的）
