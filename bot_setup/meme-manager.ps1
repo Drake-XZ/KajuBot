@@ -100,7 +100,7 @@ function Invoke-MemesTool([string[]]$pyArgs, [scriptblock]$done) {
 function Invoke-MmOps($ops, [string]$doing, [scriptblock]$after) {
     $mm = $script:MM
     if ($mm.Busy -gt 0) { return }
-    if (-not $mm.Online) { Set-MmStatus '机器人没开：改表情包要通过表情包插件，先在主窗口点「启动」。现在只能看。' 'warn'; return }
+    if (-not $mm.Online) { Set-MmStatus '机器人没开：改表情包要通过表情包插件，先在主窗口点「让佳树上线」。现在只能看。' 'warn'; return }
     $file = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'jiashu-memes-in-' + [guid]::NewGuid().ToString('N') + '.json')
     [IO.File]::WriteAllText($file, $script:MmJson.Serialize(@{ ops = @($ops) }), (New-Object System.Text.UTF8Encoding($false)))
     $mm.OpFile = $file

@@ -1,4 +1,5 @@
-﻿# 佳树控制台：「机器人开关」+「加表情包」合并成一个窗口
+﻿# 佳树控制台：上线 / 下线（主角）+ 群聊接话和暂停 + 加表情包，一个窗口
+# 2026-11-23 改版：照佳树的样子换成奶油底 + 樱花粉；上线 / 下线做成上面一整张大卡片；去掉本地写手的说法
 # 由 bot-toggle.ps1 和 add-memes.ps1 合并而来（原脚本已于 2026-10-28 移到回收站）
 #
 # 用法：
@@ -41,7 +42,7 @@ Add-Type -AssemblyName System.Net.Http
 # ---------- 机器人开关：AstrBot + SnowLuma + 小号 QQ 全部由控制台管，不再跟着大号 QQ 走 ----------
 $Port      = 6185          # AstrBot 管理面板
 $WsPort    = 6199          # AstrBot 收 QQ 消息的端口（SnowLuma 反向 WebSocket 连进来；cmd_config 里的 ws_reverse_port）
-$ModelPort = 11435         # 便携 Ollama（local_vision\runtime.ps1 管）：写手、向量、本地看图都在上面
+$ModelPort = 11435         # 便携 Ollama（local_vision\runtime.ps1 管）：记忆向量 bge-m3 + 看图后备 qwen3-vl（11-22 起本地写手删了）
 $LumaPort  = 5099          # SnowLuma WebUI
 $ObPort    = 3000          # SnowLuma 给小号开的 OneBot HTTP（小号登录后才会开）
 $BotUin    = '555555555'
@@ -151,7 +152,7 @@ function Wait-AstrPortsFree([int]$seconds = 20) {
     return ((Get-PortOwners $Port).Count -eq 0 -and (Get-PortOwners $WsPort).Count -eq 0)
 }
 
-# 她本人 = AstrBot + 本地模型（便携 Ollama，写手和向量都在上面）。QQ 只是聊天渠道之一：
+# 她本人 = AstrBot + 本地模型（便携 Ollama，记忆向量和看图后备在上面）。QQ 只是聊天渠道之一：
 # 没登录 QQ 她照样在线，B站 / 抖音私信照常回（2026-11-13 起私信不靠 QQ 客户端）。
 function Get-BotState {
     $astr = Test-Port $Port
@@ -387,7 +388,7 @@ function Start-Bot {
     $s = Get-BotState
     if ($s.Running) { return [pscustomobject]@{ Kind = 'start'; Ok = $true; Code = 'already'; QqCode = 'online'; Model = $true; Update = $null; Uin = $BotUin } }
 
-    # 1. 本地模型（写手、向量都在上面）
+    # 1. 本地模型（记忆向量、看图后备）
     if (-not $s.Model -and (Test-Path -LiteralPath $VisionScript)) {
         Set-Phase 'starting' '启动本地模型…'
         try { & $VisionScript -Action Start | Out-Null; Write-Log 'local model service (Ollama 11435) started' }
@@ -550,21 +551,21 @@ function Get-QqReason([string]$code) {
 function Get-ResultText($r) {
     $t = ''; $d = ''; $tone = 'red'
     if ($r.Kind -eq 'stop') {
-        if ($r.Ok) { $t = '已停止'; $d = '她本人（AstrBot、本地模型）和 QQ 都关了，她不会回话，也不烧 token。'; $tone = 'red' }
+        if ($r.Ok) { $t = '已下线'; $d = '她本人（AstrBot、记忆模型）和 QQ 都关了，她不会回话，也不烧 token。'; $tone = 'red' }
         else {
             $left = @()
             if ($r.State.Astr) { $left += 'AstrBot' }
-            if ($r.State.Model) { $left += '本地模型' }
+            if ($r.State.Model) { $left += '记忆模型' }
             if ($r.State.Luma) { $left += 'SnowLuma' }
             if ($r.State.BotQq) { $left += '小号 QQ' }
-            $t = '没停干净'; $d = "还在运行：$($left -join '、')。再点一次「停止」，或看开关日志。"; $tone = 'red'
+            $t = '没停干净'; $d = "还在运行：$($left -join '、')。再点一次「全部关掉」，或看开关日志。"; $tone = 'red'
         }
     } else {
-        $noModel = if ($r.Ok -and -not $r.Model) { ' 不过本地模型（11435）没开，写手用不了，她这会儿说不了话；看看 local_vision\runtime.ps1 -Action Status。' } else { '' }
+        $noModel = if ($r.Ok -and -not $r.Model) { ' 不过记忆模型（Ollama 11435）没开，她能说话但想不起以前的事；看看 local_vision\runtime.ps1 -Action Status。' } else { '' }
         switch ($r.Code) {
-            'already'  { $t = '已经在线'; $d = '她本人和 QQ 都在跑。'; $tone = 'green' }
-            'online'   { $t = '已启动'; $d = 'QQ 群聊 / 私聊、B站和抖音私信都能回。'; $tone = 'green' }
-            'core'     { $t = '已启动（QQ 没连上）'; $d = "她在线，B站 / 抖音私信照常回；QQ 这边：$(Get-QqReason $r.QqCode)。QQ 掉线时看门狗每 3 分钟会自动重连，也可以再点「连 QQ」。"; $tone = 'amber' }
+            'already'  { $t = '她已经在线了'; $d = '她本人和 QQ 都在跑。'; $tone = 'green' }
+            'online'   { $t = '上线了'; $d = 'QQ 群聊 / 私聊、B站和抖音私信都能回。'; $tone = 'green' }
+            'core'     { $t = '上线了（QQ 没连上）'; $d = "她在线，B站 / 抖音私信照常回；QQ 这边：$(Get-QqReason $r.QqCode)。QQ 掉线时看门狗每 3 分钟会自动重连，也可以点「补连 QQ」。"; $tone = 'amber' }
             'astrfail' { $t = 'AstrBot 没起来'; $d = '3 分钟内没等到 AstrBot（6185 端口），她没上线。看看 core\logs\stdout.log。'; $tone = 'red' }
             default    { $t = '启动失败'; $d = "结果：$($r.Code)。详情见开关日志。"; $tone = 'red' }
         }
@@ -616,7 +617,7 @@ function Connect-Bot {
     try {
         $resp = $client.PostAsync("$Base/api/auth/login", $content).GetAwaiter().GetResult()
     } catch {
-        throw "连不上 AstrBot（$Base）。机器人可能没开，先在左边「启动机器人」。"
+        throw "连不上 AstrBot（$Base）。她可能没上线，先点上面的「让佳树上线」。"
     }
     $text = $resp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
     if (-not $resp.IsSuccessStatusCode) { throw "登录 AstrBot 失败：$($resp.StatusCode) $text" }
@@ -890,7 +891,7 @@ if ($Action -ne 'panel') {
     $form.FormBorderStyle = 'None'
     $form.StartPosition = 'CenterScreen'
     $form.Size = New-Object System.Drawing.Size(520, 180)
-    $form.BackColor = [System.Drawing.Color]::FromArgb(24, 24, 27)
+    $form.BackColor = [System.Drawing.Color]::FromArgb(250, 245, 241)   # 和控制台一样的奶油底
     $form.TopMost = $true
     $form.ShowInTaskbar = $false
 
@@ -899,15 +900,15 @@ if ($Action -ne 'panel') {
     $title.Height = 50
     $title.TextAlign = 'MiddleCenter'
     $title.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 13, [System.Drawing.FontStyle]::Bold)
-    $title.ForeColor = [System.Drawing.Color]::White
-    $title.Text = '佳树机器人'
+    $title.ForeColor = [System.Drawing.Color]::FromArgb(223, 110, 135)
+    $title.Text = '佳树'
 
     $detail = New-Object System.Windows.Forms.Label
     $detail.Dock = 'Fill'
     $detail.Padding = New-Object System.Windows.Forms.Padding(18, 0, 18, 12)
     $detail.TextAlign = 'MiddleCenter'
     $detail.Font = New-Object System.Drawing.Font('Microsoft YaHei UI', 10)
-    $detail.ForeColor = [System.Drawing.Color]::FromArgb(180, 180, 185)
+    $detail.ForeColor = [System.Drawing.Color]::FromArgb(112, 90, 90)
     $detail.Text = ''
 
     $form.Controls.Add($detail)
@@ -917,16 +918,16 @@ if ($Action -ne 'panel') {
 
     $state = Get-BotState
     $stop = ($Action -eq 'stop') -or ($Action -eq 'toggle' -and $state.Any)
-    $detail.Text = if ($stop) { '正在停止她本人和 QQ…' } else { '正在启动，她本人大概 20~60 秒，之后再连 QQ…' }
+    $detail.Text = if ($stop) { '正在让她下线（她本人和 QQ 都关）…' } else { '正在让她上线，她本人大概 20~60 秒，之后再连 QQ…' }
     $form.Refresh(); [System.Windows.Forms.Application]::DoEvents()
 
     $r = if ($stop) { Stop-Bot } else { Start-Bot }
     $t = Get-ResultText $r
     $title.Text = $t.Title
     $title.ForeColor = switch ($t.Tone) {
-        'green' { [System.Drawing.Color]::FromArgb(120, 220, 140) }
-        'amber' { [System.Drawing.Color]::FromArgb(250, 200, 90) }
-        default { [System.Drawing.Color]::FromArgb(255, 120, 120) }
+        'green' { [System.Drawing.Color]::FromArgb(58, 124, 86) }
+        'amber' { [System.Drawing.Color]::FromArgb(160, 100, 36) }
+        default { if ($r.Kind -eq 'stop' -and $r.Ok) { [System.Drawing.Color]::FromArgb(112, 90, 90) } else { [System.Drawing.Color]::FromArgb(170, 64, 68) } }
     }
     $detail.Text = $t.Detail
     $form.Refresh()
@@ -1221,6 +1222,182 @@ namespace JiashuUi
         }
     }
 
+    // 控制台主角：一个圆圆的「佳」字徽章，外圈颜色 = 她现在的状态，在线 / 忙的时候外圈轻轻地呼吸
+    public class Avatar : Control
+    {
+        private Color ring = Color.FromArgb(200, 190, 188);
+        private Color inner = Color.FromArgb(250, 240, 240);
+        private string glyph = "佳";
+        private bool pulse;
+        private float phase;
+        private Timer timer;
+
+        public Avatar()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.UserPaint |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            timer = new Timer();
+            timer.Interval = 40;
+            timer.Tick += delegate { phase += 0.016f; if (phase > 1f) phase -= 1f; Invalidate(); };
+        }
+
+        public Color Ring { get { return ring; } set { ring = value; Invalidate(); } }
+        public Color Inner { get { return inner; } set { inner = value; Invalidate(); } }
+        public string Glyph { get { return glyph; } set { glyph = value; Invalidate(); } }
+        public bool Pulse
+        {
+            get { return pulse; }
+            set { if (pulse == value) return; pulse = value; timer.Enabled = value; if (!value) phase = 0f; Invalidate(); }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && timer != null) { timer.Dispose(); timer = null; }
+            base.Dispose(disposing);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.Clear(Gfx.BackOf(this));
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            float s = Math.Min(Width, Height);
+            float cx = Width / 2f, cy = Height / 2f;
+            float rRing = s * 0.40f, rInner = s * 0.34f, rMax = s * 0.5f - 1f;
+            float w = Math.Max(2f, s * 0.045f);
+            if (pulse)
+            {
+                float rr = rRing + (rMax - rRing) * phase;
+                int a = (int)(110 * (1f - phase));
+                using (Pen pen = new Pen(Color.FromArgb(Math.Max(0, a), ring), Math.Max(1.5f, s * 0.025f)))
+                    g.DrawEllipse(pen, cx - rr, cy - rr, rr * 2f, rr * 2f);
+            }
+            using (SolidBrush halo = new SolidBrush(Color.FromArgb(36, ring)))
+                g.FillEllipse(halo, cx - rRing - w, cy - rRing - w, (rRing + w) * 2f, (rRing + w) * 2f);
+            using (Pen pen = new Pen(ring, w))
+                g.DrawEllipse(pen, cx - rRing, cy - rRing, rRing * 2f, rRing * 2f);
+            using (SolidBrush b = new SolidBrush(inner))
+                g.FillEllipse(b, cx - rInner, cy - rInner, rInner * 2f, rInner * 2f);
+            using (StringFormat sf = new StringFormat())
+            using (SolidBrush tb = new SolidBrush(ForeColor))
+            {
+                sf.Alignment = StringAlignment.Center;
+                sf.LineAlignment = StringAlignment.Center;
+                g.DrawString(glyph, Font, tb, new RectangleF(0, s * 0.02f, Width, Height), sf);
+            }
+        }
+    }
+
+    // 粉色小滑块（代替系统自带的蓝色 TrackBar）：点、拖、方向键 / PageUp / PageDown / 滚轮都能改
+    public class Slider : Control
+    {
+        private int min = 0, max = 100, val = 0, small = 1, large = 5;
+        private Color track = Color.FromArgb(240, 228, 226);
+        private Color fill = Color.FromArgb(223, 110, 135);
+        private Color knob = Color.White;
+        private bool dragging, hover;
+        public event EventHandler ValueChanged;
+
+        public Slider()
+        {
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.ResizeRedraw | ControlStyles.UserPaint |
+                     ControlStyles.SupportsTransparentBackColor | ControlStyles.Selectable, true);
+            Cursor = Cursors.Hand;
+            TabStop = true;
+        }
+
+        public int Minimum { get { return min; } set { min = value; if (val < min) Value = min; Invalidate(); } }
+        public int Maximum { get { return max; } set { max = value; if (val > max) Value = max; Invalidate(); } }
+        public int SmallChange { get { return small; } set { small = value; } }
+        public int LargeChange { get { return large; } set { large = value; } }
+        public Color TrackColor { get { return track; } set { track = value; Invalidate(); } }
+        public Color FillColor { get { return fill; } set { fill = value; Invalidate(); } }
+        public int Value
+        {
+            get { return val; }
+            set
+            {
+                int v = Math.Max(min, Math.Min(max, value));
+                if (v == val) return;
+                val = v;
+                Invalidate();
+                if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+            }
+        }
+
+        private float KnobR { get { return Height * 0.30f; } }
+        private float Left0 { get { return KnobR + 2f; } }
+        private float Right0 { get { return Width - KnobR - 2f; } }
+
+        private void SetFromX(int x)
+        {
+            float t = (x - Left0) / Math.Max(1f, Right0 - Left0);
+            t = Math.Max(0f, Math.Min(1f, t));
+            Value = (int)Math.Round(min + t * (max - min));
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && Enabled) { Focus(); dragging = true; SetFromX(e.X); }
+            base.OnMouseDown(e);
+        }
+        protected override void OnMouseMove(MouseEventArgs e) { if (dragging) SetFromX(e.X); base.OnMouseMove(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { dragging = false; base.OnMouseUp(e); }
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseWheel(MouseEventArgs e) { if (Enabled) Value += e.Delta > 0 ? small : -small; base.OnMouseWheel(e); }
+        protected override void OnEnabledChanged(EventArgs e) { Cursor = Enabled ? Cursors.Hand : Cursors.Default; Invalidate(); base.OnEnabledChanged(e); }
+        protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+        protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+        protected override bool IsInputKey(Keys k)
+        {
+            return k == Keys.Left || k == Keys.Right || k == Keys.Up || k == Keys.Down || base.IsInputKey(k);
+        }
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (Enabled)
+            {
+                if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Down) Value -= small;
+                else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Up) Value += small;
+                else if (e.KeyCode == Keys.PageDown) Value -= large;
+                else if (e.KeyCode == Keys.PageUp) Value += large;
+                else if (e.KeyCode == Keys.Home) Value = min;
+                else if (e.KeyCode == Keys.End) Value = max;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.Clear(Gfx.BackOf(this));
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float cy = Height / 2f;
+            float th = Math.Max(4f, Height * 0.16f);
+            float t = max > min ? (val - min) / (float)(max - min) : 0f;
+            float kx = Left0 + (Right0 - Left0) * t;
+            Color f = Enabled ? fill : Color.FromArgb(214, 200, 198);
+            using (GraphicsPath p = Gfx.Round(new RectangleF(Left0 - th / 2f, cy - th / 2f, Right0 - Left0 + th, th), th / 2f))
+            using (SolidBrush b = new SolidBrush(track))
+                g.FillPath(b, p);
+            if (kx > Left0)
+                using (GraphicsPath p = Gfx.Round(new RectangleF(Left0 - th / 2f, cy - th / 2f, kx - Left0 + th, th), th / 2f))
+                using (SolidBrush b = new SolidBrush(f))
+                    g.FillPath(b, p);
+            float r = KnobR;
+            if (Enabled && (hover || dragging || Focused))
+                using (SolidBrush halo = new SolidBrush(Color.FromArgb(48, f)))
+                    g.FillEllipse(halo, kx - r * 1.45f, cy - r * 1.45f, r * 2.9f, r * 2.9f);
+            using (SolidBrush b = new SolidBrush(knob))
+                g.FillEllipse(b, kx - r, cy - r, r * 2f, r * 2f);
+            using (Pen pen = new Pen(f, Math.Max(2f, r * 0.28f)))
+                g.DrawEllipse(pen, kx - r, cy - r, r * 2f, r * 2f);
+        }
+    }
+
     public class ThumbList : ListView
     {
         [DllImport("user32.dll")]
@@ -1308,35 +1485,38 @@ function Fnt([double]$size, [string]$style = 'Regular') {
     New-Object System.Drawing.Font('Microsoft YaHei UI', [single]$size, [System.Drawing.FontStyle]$style)
 }
 
+# 配色（2026-11-23 改）：照佳树的样子——温温的奶油底、樱花粉做主色、抹茶绿表示在线，规规矩矩、软软的，不要冷冰冰的蓝灰
 $Pal = @{
-    Bg          = Rgb 243 244 246
-    Card        = Rgb 255 255 255
-    Line        = Rgb 229 231 235
-    Text        = Rgb 17 24 39
-    Sub         = Rgb 75 85 99
-    Muted       = Rgb 140 147 160
-    Accent      = Rgb 37 99 235
-    AccentHover = Rgb 29 78 216
-    AccentPress = Rgb 30 64 175
-    AccentSoft  = Rgb 219 234 254
-    Green       = Rgb 22 163 74
-    GreenHover  = Rgb 21 128 61
-    GreenPress  = Rgb 22 101 52
-    GreenSoft   = Rgb 220 252 231
-    GreenText   = Rgb 21 128 61
-    Red         = Rgb 239 68 68
-    RedHover    = Rgb 220 38 38
-    RedPress    = Rgb 185 28 28
-    RedSoft     = Rgb 254 226 226
-    RedText     = Rgb 185 28 28
-    Amber       = Rgb 245 158 11
-    AmberSoft   = Rgb 254 243 199
-    AmberText   = Rgb 180 83 9
-    GreySoft    = Rgb 243 244 246
-    GreyText    = Rgb 107 114 128
-    DropFill    = Rgb 249 250 251
-    DropLine    = Rgb 203 213 225
-    DropHot     = Rgb 239 246 255
+    Bg          = Rgb 250 245 241
+    Card        = Rgb 255 253 251
+    Line        = Rgb 239 226 221
+    Text        = Rgb 66 46 48
+    Sub         = Rgb 112 90 90
+    Muted       = Rgb 163 143 141
+    Accent      = Rgb 223 110 135
+    AccentHover = Rgb 207 92 119
+    AccentPress = Rgb 186 76 102
+    AccentSoft  = Rgb 252 232 237
+    Green       = Rgb 104 170 128
+    GreenHover  = Rgb 88 152 112
+    GreenPress  = Rgb 72 132 96
+    GreenSoft   = Rgb 228 243 233
+    GreenText   = Rgb 58 124 86
+    Red         = Rgb 214 96 100
+    RedHover    = Rgb 196 80 86
+    RedPress    = Rgb 172 66 72
+    RedSoft     = Rgb 251 233 231
+    RedText     = Rgb 170 64 68
+    Amber       = Rgb 230 160 80
+    AmberSoft   = Rgb 253 240 220
+    AmberText   = Rgb 160 100 36
+    GreySoft    = Rgb 245 238 234
+    GreyText    = Rgb 134 114 112
+    DropFill    = Rgb 254 249 247
+    DropLine    = Rgb 236 196 206
+    DropHot     = Rgb 253 236 241
+    HeroFill    = Rgb 255 250 251
+    HeroLine    = Rgb 244 218 225
     White       = [System.Drawing.Color]::White
     Clear       = [System.Drawing.Color]::Transparent
 }
@@ -1372,6 +1552,8 @@ function New-Button([string]$text, [double]$x, [double]$y, [double]$w, [double]$
     $b.Size = Sz $w $h
     $b.Radius = Px 10
     $b.Font = Fnt $fontSize 'Bold'
+    $b.DisabledColor = Rgb 241 233 230
+    $b.DisabledText = $Pal.Muted
     Set-ButtonKind $b $kind
     return $b
 }
@@ -1381,7 +1563,8 @@ function Set-ButtonKind($b, [string]$kind) {
         'primary' { $b.BaseColor = $Pal.Accent; $b.HoverColor = $Pal.AccentHover; $b.PressColor = $Pal.AccentPress; $b.ForeColor = $Pal.White; $b.BorderColor = [System.Drawing.Color]::Empty }
         'green'   { $b.BaseColor = $Pal.Green;  $b.HoverColor = $Pal.GreenHover;  $b.PressColor = $Pal.GreenPress;  $b.ForeColor = $Pal.White; $b.BorderColor = [System.Drawing.Color]::Empty }
         'red'     { $b.BaseColor = $Pal.Red;    $b.HoverColor = $Pal.RedHover;    $b.PressColor = $Pal.RedPress;    $b.ForeColor = $Pal.White; $b.BorderColor = [System.Drawing.Color]::Empty }
-        'ghost'   { $b.BaseColor = $Pal.White;  $b.HoverColor = (Rgb 249 250 251); $b.PressColor = (Rgb 243 244 246); $b.ForeColor = $Pal.Text; $b.BorderColor = (Rgb 209 213 219) }
+        'ghost'   { $b.BaseColor = $Pal.Card;   $b.HoverColor = (Rgb 253 243 245); $b.PressColor = (Rgb 250 232 237); $b.ForeColor = $Pal.Text; $b.BorderColor = (Rgb 234 214 217) }
+        'calm'    { $b.BaseColor = $Pal.RedSoft; $b.HoverColor = (Rgb 247 220 218); $b.PressColor = (Rgb 241 205 203); $b.ForeColor = $Pal.RedText; $b.BorderColor = (Rgb 238 200 198) }
     }
 }
 
@@ -1557,10 +1740,12 @@ $SeaBody = $SeaBody.Replace('__PY__', $SeaPy).Replace('__TOOL__', $SeaTool)
 $script:SeaBusy = $false
 
 # ---------- 窗口 ----------
+# 2026-11-23 改版：上线 / 下线是主角（上面一整张大卡片），群聊和加表情包放下面两张小卡片；
+# 去掉了本地写手相关的说法（11-22 写手整条删了，本地模型只剩记忆向量 bge-m3 和看图后备 qwen3-vl）
 $form = New-Object System.Windows.Forms.Form
 $form.Text = $WindowTitle
 $form.AutoScaleMode = 'None'
-$form.ClientSize = Sz 860 772   # 11-17 加了「群聊暂停」一行，原来 682
+$form.ClientSize = Sz 860 724
 $form.StartPosition = 'CenterScreen'
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox = $false
@@ -1569,104 +1754,145 @@ $form.Font = Fnt 9
 $form.AllowDrop = $true
 if (Test-Path $IconPath) { try { $form.Icon = New-Object System.Drawing.Icon($IconPath) } catch { } }
 
-# 顶部
-$logo = New-Object System.Windows.Forms.PictureBox
-$logo.Location = Pt 26 20
-$logo.Size = Sz 44 44
-$logo.SizeMode = 'Zoom'
-$logo.BackColor = $Pal.Clear
-if (Test-Path $IconPath) { try { $logo.Image = [JiashuUi.Ico]::Largest($IconPath) } catch { } }
+$tips = New-Object System.Windows.Forms.ToolTip
+$tips.AutoPopDelay = 20000
 
-$hTitle = New-Label '佳树控制台' 80 16 150 32 (Fnt 16 'Bold') $Pal.Text
-$hSub   = New-Label '机器人开关 · 表情包 · 群聊接话 · AstrBot 127.0.0.1:6185' 81 48 370 20 (Fnt 9) $Pal.Muted
-$hSub.AutoEllipsis = $true
-$hTime  = New-Label '' 224 26 216 20 (Fnt 8.5) $Pal.Muted 'MiddleRight'
-$btnGallery = New-Button '☺ 表情包管理' 452 24 128 40 'ghost' 10
-$btnSea     = New-Button '✦ 记忆星海' 588 24 120 40 'ghost' 10
-$btnPersona = New-Button '✎ 人格微调' 716 24 120 40 'ghost' 10
-$form.Controls.AddRange(@($logo, $hTitle, $hSub, $hTime, $btnGallery, $btnSea, $btnPersona))
+# 顶部：标题 + 三个小窗口的入口
+$hTitle = New-Label '佳树控制台' 26 14 200 32 (Fnt 15 'Bold') $Pal.Text
+$hSub   = New-Label '读取中…' 27 44 360 20 (Fnt 8.5) $Pal.Muted
+$btnGallery = New-Button '☺ 表情包管理' 476 18 120 36 'ghost' 9.5
+$btnSea     = New-Button '✦ 记忆星海' 604 18 112 36 'ghost' 9.5
+$btnPersona = New-Button '✎ 人格微调' 724 18 112 36 'ghost' 9.5
+$form.Controls.AddRange(@($hTitle, $hSub, $btnGallery, $btnSea, $btnPersona))
 
-# ===== 左：机器人开关 =====
-$botCard = New-Card 24 88 300 474
-$bTitle = New-Label '机器人开关' 22 18 256 26 (Fnt 11.5 'Bold') $Pal.Text
-$bHint  = New-Label '决定佳树回不回话、烧不烧 token' 22 44 256 20 (Fnt 9) $Pal.Muted
+# ===== 上：上线 / 下线（主角） =====
+$botCard = New-Card 24 72 812 244
+$botCard.Fill = $Pal.HeroFill
+$botCard.Border = $Pal.HeroLine
+$botCard.Radius = Px 20
 
-$dot = New-Object JiashuUi.Dot
-$dot.Location = Pt 16 80
-$dot.Size = Sz 56 56
+$avatar = New-Object JiashuUi.Avatar
+$avatar.Location = Pt 30 22
+$avatar.Size = Sz 136 136
+$avatar.Font = Fnt 30 'Bold'
+$avatar.ForeColor = $Pal.Muted
 
-$bBig = New-Label '读取中…' 78 80 206 34 (Fnt 17 'Bold') $Pal.Text
-$bSub = New-Label '' 79 114 206 22 (Fnt 9) $Pal.Sub
+$bBig = New-Label '读取中…' 182 30 396 48 (Fnt 22 'Bold') $Pal.Text
+$bSub = New-Label '' 184 78 396 24 (Fnt 10) $Pal.Sub
+$bSub.AutoEllipsis = $true
 
-$div1 = New-Divider 22 152 256
-
-$rowY = @(166, 200, 234)
-$rKeys = @('AstrBot（她本人）', '本地模型（写手）', "QQ（小号 $BotUin）")
+# 三样东西各一个小标签：她本人 / 记忆模型 / QQ 小号（鼠标停上去看详细）
+$rKeys = @('她本人', '记忆模型', 'QQ 小号')
+$rTips = @(
+    "AstrBot（127.0.0.1:$Port）：她本人，开着她才会说话",
+    "本地 Ollama（127.0.0.1:$ModelPort）：记忆向量 bge-m3 + 看图后备 qwen3-vl；没开她想不起以前的事",
+    "小号 $BotUin 经 SnowLuma 连进来；没连上不影响 B站 / 抖音私信，掉线看门狗每 3 分钟自动重连"
+)
 $chips = @()
 for ($i = 0; $i -lt 3; $i++) {
-    $botCard.Controls.Add((New-Label $rKeys[$i] 22 $rowY[$i] 166 26 (Fnt 9.5) $Pal.Sub))
-    $chip = New-Chip 188 ($rowY[$i] + 1) 90 24
+    $x = 184 + $i * 128
+    $lab = New-Label $rKeys[$i] $x 114 120 18 (Fnt 8.5) $Pal.Muted
+    $chip = New-Chip $x 134 112 26
     Set-Chip $chip 'off' '…'
+    $tips.SetToolTip($lab, $rTips[$i])
+    $tips.SetToolTip($chip, $rTips[$i])
     $chips += $chip
-    $botCard.Controls.Add($chip)
+    $botCard.Controls.AddRange(@($lab, $chip))
 }
 $chipAstr, $chipModel, $chipQq = $chips
 
-$div2 = New-Divider 22 274 256
-
-$mTitle  = New-Label '' 22 286 256 24 (Fnt 10 'Bold') $Pal.Text
-$DefaultBotHint = '「启动」先开她本人（AstrBot + 本地模型），就绪就算上线，再顺带连 QQ；QQ 没登录不影响 B站 / 抖音私信，掉线看门狗会自动重连。「停止」全部关掉。'
-$mDetail = New-Label $DefaultBotHint 22 308 256 82 (Fnt 8.5) $Pal.Sub 'TopLeft'
-$mTip = New-Object System.Windows.Forms.ToolTip
-$mTip.AutoPopDelay = 30000
-
-$btnStart = New-Button '启动' 22 394 124 44 'green' 11
-$btnStop  = New-Button '停止' 154 394 124 44 'red' 11
-$btnStart.Enabled = $false
-$btnStop.Enabled = $false
+$btnPower = New-Button '让佳树上线' 590 30 196 64 'primary' 13
+$btnPower.Radius = Px 32
+$btnPower.Enabled = $false
+$btnQq = New-Button '补连 QQ' 590 104 196 32 'ghost' 9.5
+$btnQq.Radius = Px 16
+$btnQq.Visible = $false
+$tips.SetToolTip($btnQq, '她本人已经在线，只把 QQ 这条渠道再连一次')
 
 $lnkPanel = New-Object System.Windows.Forms.LinkLabel
 $lnkLog   = New-Object System.Windows.Forms.LinkLabel
-foreach ($pair in @(@($lnkPanel, '打开管理面板', 22), @($lnkLog, '查看开关日志', 130))) {
+foreach ($pair in @(@($lnkPanel, '打开管理面板', 594), @($lnkLog, '查看开关日志', 692))) {
     $l = $pair[0]
     $l.Text = $pair[1]
-    $l.Location = Pt $pair[2] 444
-    $l.Size = Sz 100 22
-    $l.Font = Fnt 9
+    $l.Location = Pt $pair[2] 144
+    $l.Size = Sz 94 20
+    $l.Font = Fnt 8.5
     $l.LinkColor = $Pal.Accent
     $l.ActiveLinkColor = $Pal.AccentPress
     $l.LinkBehavior = 'HoverUnderline'
     $l.BackColor = $Pal.Clear
-    $l.TextAlign = 'MiddleLeft'
+    $l.TextAlign = 'MiddleCenter'
 }
 
-$botCard.Controls.AddRange(@($bTitle, $bHint, $dot, $bBig, $bSub, $div1, $div2, $mTitle, $mDetail, $btnStart, $btnStop, $lnkPanel, $lnkLog))
+$div1 = New-Divider 30 176 752
+$div1.BackColor = $Pal.HeroLine
 
-# ===== 右：表情包（添加 / 查看删除 两种模式） =====
-$memeCard = New-Card 340 88 496 474
-$eTitle = New-Label '表情包' 22 18 200 26 (Fnt 11.5 'Bold') $Pal.Text
-$eHint  = New-Label '' 22 44 452 20 (Fnt 9) $Pal.Muted
+$mTitle  = New-Label '' 30 184 752 20 (Fnt 9.5 'Bold') $Pal.Text
+$DefaultBotHint = '「上线」先开她本人（AstrBot + 记忆模型），就绪就算上线，再顺带连 QQ；QQ 没登录不影响 B站 / 抖音私信。「下线」全部关掉，她不回话、也不烧 token。'
+$mDetail = New-Label $DefaultBotHint 30 204 752 34 (Fnt 8.5) $Pal.Sub 'TopLeft'
+$mDetail.AutoEllipsis = $true
+$mTip = New-Object System.Windows.Forms.ToolTip
+$mTip.AutoPopDelay = 30000
+
+$botCard.Controls.AddRange(@($avatar, $bBig, $bSub, $btnPower, $btnQq, $lnkPanel, $lnkLog, $div1, $mTitle, $mDetail))
+
+# ===== 左下：群聊（主动接话 + 暂停） =====
+$chanceCard = New-Card 24 332 396 372
+$cTitle = New-Label '群聊' 22 16 200 26 (Fnt 11.5 'Bold') $Pal.Text
+$cHint  = New-Label '没人 @ 她时插不插话，要不要先安静一会儿' 22 42 352 20 (Fnt 9) $Pal.Muted
+$cHint.AutoEllipsis = $true
+
+$cSec = New-Label '主动接话' 22 80 160 22 (Fnt 9.5 'Bold') $Pal.Sub
+$cValue = New-Label '…' 270 72 104 34 (Fnt 15 'Bold') $Pal.Text 'MiddleRight'
+
+$cTrack = New-Object JiashuUi.Slider
+$cTrack.Location = Pt 16 107
+$cTrack.Size = Sz 278 34
+$cTrack.Minimum = 0
+$cTrack.Maximum = 100
+$cTrack.SmallChange = 1
+$cTrack.LargeChange = 5
+$cTrack.FillColor = $Pal.Accent
+$cTrack.TrackColor = Rgb 242 230 228
+$cTrack.Enabled = $false
+
+$btnChance = New-Button '保存' 302 106 72 34 'primary' 9.5
+$btnChance.Enabled = $false
+$cStatus = New-Label '读取中…' 22 146 352 40 (Fnt 8.5) $Pal.Muted 'TopLeft'
+$cStatus.AutoEllipsis = $true
+
+$cDiv = New-Divider 22 196 352
+
+$qHint = New-Label '群聊暂停' 22 212 160 22 (Fnt 9.5 'Bold') $Pal.Sub
+$qChip = New-Chip 244 210 130 26
+Set-Chip $qChip 'grey' '读取中…'
+$qStatus = New-Label '' 22 244 352 56 (Fnt 8.5) $Pal.Muted 'TopLeft'
+$qStatus.AutoEllipsis = $true
+$btnPause = New-Button '暂停群聊' 22 310 352 42 'calm' 10
+$btnPause.Radius = Px 21
+$btnPause.Enabled = $false
+
+$chanceCard.Controls.AddRange(@($cTitle, $cHint, $cSec, $cValue, $cTrack, $btnChance, $cStatus, $cDiv, $qHint, $qChip, $qStatus, $btnPause))
+
+# ===== 右下：加表情包（查看 / 删除 / 改分类 / 回收站在「表情包管理」窗口里） =====
+$memeCard = New-Card 436 332 400 372
+$eTitle = New-Label '加表情包' 22 16 160 26 (Fnt 11.5 'Bold') $Pal.Text
+$eHint  = New-Label '' 22 42 356 20 (Fnt 9) $Pal.Muted
 $eHint.AutoEllipsis = $true
+$btnManage = New-Button '管理全部 · 回收站 →' 216 12 162 30 'ghost' 8.5
 
-# 查看 / 删除 / 改分类 / 回收站都在「表情包管理」窗口里
-$btnManage = New-Button '管理全部 · 回收站 →' 296 10 178 32 'ghost' 9
-
-function New-Pane {
-    $p = New-Object JiashuUi.Card
-    $p.Location = Pt 1 68
-    $p.Size = Sz 494 392
-    $p.Radius = 0
-    $p.Fill = $Pal.Card
-    $p.Border = $Pal.Clear
-    return $p
-}
-$addPane = New-Pane
+$addPane = New-Object JiashuUi.Card
+$addPane.Location = Pt 1 68
+$addPane.Size = Sz 398 290
+$addPane.Radius = 0
+$addPane.Fill = $Pal.Card
+$addPane.Border = $Pal.Clear
 $addPane.AllowDrop = $true
 
 $drop = New-Object JiashuUi.Card
-$drop.Location = Pt 21 8
-$drop.Size = Sz 452 204
-$drop.Radius = Px 12
+$drop.Location = Pt 21 4
+$drop.Size = Sz 356 138
+$drop.Radius = Px 14
 $drop.Fill = $Pal.DropFill
 $drop.Border = $Pal.DropLine
 $drop.BorderWidth = [single][Math]::Max(1.0, $Dpi)
@@ -1679,8 +1905,8 @@ $images.ColorDepth = 'Depth32Bit'
 $images.ImageSize = New-Object System.Drawing.Size($thumbSize, $thumbSize)
 
 $lv = New-Object JiashuUi.ThumbList
-$lv.Location = Pt 10 10
-$lv.Size = Sz 432 184
+$lv.Location = Pt 8 8
+$lv.Size = Sz 340 122
 $lv.View = 'LargeIcon'
 $lv.LargeImageList = $images
 $lv.BorderStyle = 'None'
@@ -1699,28 +1925,26 @@ $lv.ContextMenuStrip = $lvMenu
 # 空状态 / 结果提示（列表为空时显示）
 $empty = New-Object JiashuUi.Card
 $empty.Location = Pt 2 2
-$empty.Size = Sz 448 200
+$empty.Size = Sz 352 134
 $empty.Radius = 0
 $empty.Fill = $Pal.DropFill
 $empty.Border = $Pal.Clear
 $empty.AllowDrop = $true
 $empty.Cursor = [System.Windows.Forms.Cursors]::Hand
 
-$glyph = New-Chip 202 34 44 44
+$glyph = New-Chip 154 12 44 44
 $glyph.Font = Fnt 16 'Bold'
 $glyph.Cursor = [System.Windows.Forms.Cursors]::Hand
-$eBig = New-Label '' 10 88 428 28 (Fnt 11 'Bold') $Pal.Text 'MiddleCenter'
-$eSmall = New-Label '' 24 118 400 78 (Fnt 9) $Pal.Sub 'TopCenter'
+$eBig = New-Label '' 8 58 336 26 (Fnt 10.5 'Bold') $Pal.Text 'MiddleCenter'
+$eSmall = New-Label '' 16 86 320 46 (Fnt 8.5) $Pal.Sub 'TopCenter'
 $eSmall.AutoEllipsis = $true
 foreach ($c in @($glyph, $eBig, $eSmall)) { $c.AllowDrop = $true; $c.Cursor = [System.Windows.Forms.Cursors]::Hand }
 $empty.Controls.AddRange(@($glyph, $eBig, $eSmall))
 $drop.Controls.AddRange(@($lv, $empty))
 
-$tips = New-Object System.Windows.Forms.ToolTip
-
-$btnPick  = New-Button '选择图片…' 21 224 112 36 'ghost' 9.5
-$btnClear = New-Button '清空列表' 141 224 96 36 'ghost' 9.5
-$eCount   = New-Label '准备就绪。' 245 224 228 36 (Fnt 9) $Pal.Sub 'MiddleRight'
+$btnPick  = New-Button '选择图片…' 21 152 104 32 'ghost' 9
+$btnClear = New-Button '清空列表' 131 152 86 32 'ghost' 9
+$eCount   = New-Label '准备就绪。' 221 152 156 32 (Fnt 8.5) $Pal.Sub 'MiddleRight'
 $eCount.AutoEllipsis = $true
 
 function New-CatCombo([double]$x, [double]$y) {
@@ -1736,59 +1960,22 @@ function New-CatCombo([double]$x, [double]$y) {
     return $cb
 }
 
-$catLabel = New-Label '分类' 21 274 44 32 (Fnt 9.5) $Pal.Sub
-$combo = New-CatCombo 65 275
-$catDesc = New-Label '' 65 310 408 22 (Fnt 8.5) $Pal.Muted
+$catLabel = New-Label '分类' 21 192 40 30 (Fnt 9.5) $Pal.Sub
+$combo = New-CatCombo 59 193
+$combo.Width = Px 152
+$combo.DropDownWidth = Px 230
+$btnNewCat  = New-Button '＋ 新建' 217 192 78 30 'ghost' 9
+$btnEditCat = New-Button '改描述' 301 192 76 30 'ghost' 9
+$catDesc = New-Label '' 21 225 356 20 (Fnt 8.5) $Pal.Muted
 $catDesc.AutoEllipsis = $true
-$btnNewCat  = New-Button '＋ 新建分类' 303 274 86 32 'ghost' 9
-$btnEditCat = New-Button '改描述' 395 274 78 32 'ghost' 9
 
-$btnAdd = New-Button '添加到表情包' 21 340 452 48 'primary' 11
+$btnAdd = New-Button '添加到表情包' 21 248 356 40 'primary' 10.5
+$btnAdd.Radius = Px 20
 
 $addPane.Controls.AddRange(@($drop, $btnPick, $btnClear, $eCount, $catLabel, $combo, $catDesc, $btnNewCat, $btnEditCat, $btnAdd))
-
 $memeCard.Controls.AddRange(@($eTitle, $eHint, $btnManage, $addPane))
 
-# ===== 下：群聊主动接话概率 =====
-$chanceCard = New-Card 24 578 812 82
-$cTitle = New-Label '群聊主动接话' 22 14 320 26 (Fnt 11.5 'Bold') $Pal.Text
-$cHint  = New-Label '没人 @ 她时，一波群聊聊完后她插话的起步概率。' 22 42 340 22 (Fnt 9) $Pal.Muted
-$cHint.AutoEllipsis = $true
-
-$cTrack = New-Object System.Windows.Forms.TrackBar
-$cTrack.AutoSize = $false
-$cTrack.Location = Pt 366 14
-$cTrack.Size = Sz 258 32
-$cTrack.Minimum = 0
-$cTrack.Maximum = 100
-$cTrack.SmallChange = 1
-$cTrack.LargeChange = 5
-$cTrack.TickFrequency = 10
-$cTrack.TickStyle = 'BottomRight'
-$cTrack.BackColor = $Pal.Card
-$cTrack.Enabled = $false
-
-$cValue  = New-Label '…' 626 12 72 34 (Fnt 15 'Bold') $Pal.Text 'MiddleCenter'
-$btnChance = New-Button '保存' 706 12 84 36 'primary' 10
-$btnChance.Enabled = $false
-$cStatus = New-Label '读取中…' 372 50 418 22 (Fnt 8.5) $Pal.Muted
-$cStatus.AutoEllipsis = $true
-
-$chanceCard.Controls.AddRange(@($cTitle, $cHint, $cTrack, $cValue, $btnChance, $cStatus))
-
-# ===== 最下：群聊暂停（2026-11-17）=====
-$quietCard = New-Card 24 674 812 82
-$qTitle  = New-Label '群聊暂停' 22 14 320 26 (Fnt 11.5 'Bold') $Pal.Text
-$qHint   = New-Label '跑训练、造数据时让她在群里不说话；私聊照常。' 22 42 340 22 (Fnt 9) $Pal.Muted
-$qHint.AutoEllipsis = $true
-$qChip   = New-Chip 372 16 132 28
-Set-Chip $qChip 'grey' '读取中…'
-$btnPause = New-Button '暂停群聊' 646 12 144 36 'red' 10
-$btnPause.Enabled = $false
-$qStatus = New-Label '' 372 50 418 22 (Fnt 8.5) $Pal.Muted
-$qStatus.AutoEllipsis = $true
-$quietCard.Controls.AddRange(@($qTitle, $qHint, $qChip, $btnPause, $qStatus))
-$form.Controls.AddRange(@($botCard, $memeCard, $chanceCard, $quietCard))
+$form.Controls.AddRange(@($botCard, $chanceCard, $memeCard))
 
 # =====================================================================
 #  机器人：状态显示 + 开关
@@ -1805,74 +1992,91 @@ function Show-BotMessage([string]$title, [string]$detail, $color) {
     $mTip.SetToolTip($mDetail, $detail)
 }
 
+# 主角卡片：徽章外圈颜色 + 大字 + 一个大按钮（上线 / 下线）；QQ 没通或没开全时，下面多一个小按钮
+function Set-Hero([string]$tone, [bool]$pulse, [string]$big, [string]$sub) {
+    switch ($tone) {
+        'green' { $avatar.Ring = $Pal.Green; $avatar.Inner = $Pal.GreenSoft; $avatar.ForeColor = $Pal.GreenText }
+        'amber' { $avatar.Ring = $Pal.Amber; $avatar.Inner = $Pal.AmberSoft; $avatar.ForeColor = $Pal.AmberText }
+        'rose'  { $avatar.Ring = $Pal.Accent; $avatar.Inner = $Pal.AccentSoft; $avatar.ForeColor = $Pal.Accent }
+        default { $avatar.Ring = (Rgb 224 208 206); $avatar.Inner = $Pal.GreySoft; $avatar.ForeColor = $Pal.Muted }
+    }
+    $avatar.Pulse = $pulse
+    $bBig.Text = $big
+    $bSub.Text = $sub
+    $tips.SetToolTip($bSub, $sub)
+}
+
+# $mode：on = 按下去让她上线；off = 按下去让她下线；busy = 正在做，按不了
+function Set-Power([string]$mode, [string]$text = '') {
+    $script:PowerMode = $mode
+    switch ($mode) {
+        'on'  { Set-ButtonKind $btnPower 'primary'; $btnPower.Text = '让佳树上线'; $btnPower.Enabled = $true }
+        'off' { Set-ButtonKind $btnPower 'calm';    $btnPower.Text = '让佳树下线'; $btnPower.Enabled = $true }
+        default { $btnPower.Text = $(if ($text) { $text } else { '稍等…' }); $btnPower.Enabled = $false }
+    }
+}
+
+# 小按钮：qq = 补连 QQ（她本人在线、QQ 没通）；stop = 全部关掉（只开了一部分）；'' = 不显示
+function Set-Second([string]$what) {
+    $script:SecondAction = $what
+    switch ($what) {
+        'qq'   { $btnQq.Text = '补连 QQ'; $btnQq.Visible = $true; $tips.SetToolTip($btnQq, '她本人已经在线，只把 QQ 这条渠道再连一次') }
+        'stop' { $btnQq.Text = '全部关掉'; $btnQq.Visible = $true; $tips.SetToolTip($btnQq, '把已经开着的那一部分也关掉') }
+        default { $btnQq.Visible = $false }
+    }
+}
+
 function Update-BotView {
     $st = $script:BotState
     $busy = $script:BotBusy
     if ($busy) {
-        $dot.DotColor = $Pal.Amber
-        $dot.Pulse = $true
-        switch ($busy) {
-            'stopping' { $bBig.Text = '正在停止…' }
-            'starting' { $bBig.Text = '正在启动…' }
-            'updating' { $bBig.Text = '升级小号 QQ…' }
-            'qq'       { $bBig.Text = '已上线，连 QQ…' }
-            'login'    { $bBig.Text = '已上线，等小号登录…' }
-            default    { $bBig.Text = '稍等…' }
+        $big = switch ($busy) {
+            'stopping' { '正在下线…' }
+            'starting' { '正在上线…' }
+            'updating' { '升级小号 QQ…' }
+            'qq'       { '已上线，连 QQ…' }
+            'login'    { '已上线，等小号登录…' }
+            default    { '稍等…' }
         }
-        $bSub.Text = if ($script:Sync.Detail) { [string]$script:Sync.Detail } else { '正在确认当前状态' }
-        $btnStart.Enabled = $false
-        $btnStop.Enabled = $false
+        $sub = if ($script:Sync.Detail) { [string]$script:Sync.Detail } else { '正在确认当前状态' }
+        Set-Hero 'amber' $true $big $sub
+        Set-Power 'busy' $(if ($script:BotBusyKind -eq 'stop') { '正在下线…' } else { '正在上线…' })
+        Set-Second ''
     } elseif ($null -eq $st) {
-        $dot.DotColor = $Pal.Muted
-        $dot.Pulse = $false
-        $bBig.Text = '读取中…'
-        $bSub.Text = ''
-        $btnStart.Enabled = $false
-        $btnStop.Enabled = $false
+        Set-Hero 'off' $false '读取中…' ''
+        Set-Power 'busy' '读取中…'
+        Set-Second ''
     } elseif ($st.Ready -and $st.QqOk) {
-        $dot.DotColor = $Pal.Green
-        $dot.Pulse = $true
-        $bBig.Text = '在线'
-        $bSub.Text = 'QQ、B站、抖音私信都能回'
-        $btnStart.Enabled = $false
-        $btnStop.Enabled = $true
+        Set-Hero 'green' $true '佳树在线' 'QQ 群聊 / 私聊、B站和抖音私信都能回'
+        Set-Power 'off'
+        Set-Second ''
     } elseif ($st.Ready) {
-        # 她本人在线，只是 QQ 这条渠道没通：照样算在线，「启动」变成只补连 QQ
-        $dot.DotColor = $Pal.Green
-        $dot.Pulse = $true
-        $bBig.Text = '在线'
+        # 她本人在线，只是 QQ 这条渠道没通：照样算在线，多一个「补连 QQ」
         $why = if (-not $st.Luma) { 'SnowLuma 没开' } elseif (-not $st.BotQq) { '小号 QQ 没开' } elseif (-not $st.Online) { '小号没登录' } else { 'QQ 消息收不到' }
-        $bSub.Text = "QQ 没连上：$why"
-        $btnStart.Enabled = $true
-        $btnStop.Enabled = $true
+        Set-Hero 'green' $true '佳树在线' "QQ 没连上（$why），B站 / 抖音私信照常回"
+        Set-Power 'off'
+        Set-Second 'qq'
     } elseif ($st.Any) {
         $miss = @()
         if (-not $st.Astr) { $miss += 'AstrBot' }
-        if (-not $st.Model) { $miss += '本地模型' }
-        $dot.DotColor = $Pal.Amber
-        $dot.Pulse = $false
-        $bBig.Text = '没完全启动'
-        $bSub.Text = '她本人缺：' + ($miss -join '、')
-        $btnStart.Enabled = $true
-        $btnStop.Enabled = $true
+        if (-not $st.Model) { $miss += '记忆模型' }
+        Set-Hero 'amber' $false '没完全上线' ('她本人还缺：' + ($miss -join '、') + '，点「让佳树上线」补上')
+        Set-Power 'on'
+        Set-Second 'stop'
     } else {
-        $dot.DotColor = $Pal.Red
-        $dot.Pulse = $false
-        $bBig.Text = '离线'
-        $bSub.Text = '她不会回话，也不烧 token'
-        $btnStart.Enabled = $true
-        $btnStop.Enabled = $false
+        Set-Hero 'off' $false '佳树在休息' '她现在不会回话，也不烧 token'
+        Set-Power 'on'
+        Set-Second ''
     }
 
     if ($null -ne $st) {
-        if ($st.Astr) { Set-Chip $chipAstr 'ok' '运行中' } else { Set-Chip $chipAstr 'off' '未运行' }
-        if ($st.Model) { Set-Chip $chipModel 'ok' '运行中' } else { Set-Chip $chipModel 'off' '未运行' }
+        if ($st.Astr) { Set-Chip $chipAstr 'ok' '在线' } else { Set-Chip $chipAstr 'off' '没开' }
+        if ($st.Model) { Set-Chip $chipModel 'ok' '开着' } else { Set-Chip $chipModel 'off' '没开' }
         if ($st.QqOk) { Set-Chip $chipQq 'ok' '已连上' }
         elseif ($st.Online) { Set-Chip $chipQq 'warn' '收不到' }
-        elseif ($st.BotQq) { Set-Chip $chipQq 'warn' '未登录' }
+        elseif ($st.BotQq) { Set-Chip $chipQq 'warn' '没登录' }
         elseif ($st.Luma) { Set-Chip $chipQq 'warn' '没开小号' }
-        else { Set-Chip $chipQq 'off' '未运行' }
-        $btnStart.Text = if ($st.Ready -and -not $st.QqOk -and -not $busy) { '连 QQ' } else { '启动' }
+        else { Set-Chip $chipQq 'off' '没开' }
         if (-not $mTitle.Text) {
             $ver = if ($st.BotVer) { "小号 QQ 版本 $($st.BotVer)。" } else { '' }
             $mDetail.Text = $ver + $DefaultBotHint
@@ -1898,15 +2102,16 @@ function Start-Poll {
         Update-ChanceView
         if ($null -ne $r.GroupQuiet) { $script:GroupQuiet = $r.GroupQuiet }
         Update-QuietView
-        $hTime.Text = '每 3 秒自动刷新 · ' + (Get-Date -Format 'HH:mm:ss')
+        $hSub.Text = '每 3 秒看一眼她 · 上次 ' + (Get-Date -Format 'HH:mm:ss')
         Update-BotView
         Update-PackInfo
     }
 }
 
-function Invoke-BotAction([string]$body) {
+function Invoke-BotAction([string]$body, [string]$kind = 'start') {
     if ($script:BotBusy) { return }
     $script:BotBusy = 'checking'
+    $script:BotBusyKind = $kind
     $script:Sync.Phase = ''
     $script:Sync.Detail = ''
     Show-BotMessage '' '' $Pal.Text
@@ -1919,6 +2124,7 @@ function Invoke-BotAction([string]$body) {
             Show-BotMessage '出错了' ([string]$err) $Pal.RedText
         } else {
             $color = switch ($r.Tone) { 'green' { $Pal.GreenText } 'amber' { $Pal.AmberText } default { $Pal.RedText } }
+            if ($r.Kind -eq 'stop' -and $r.Ok) { $color = $Pal.Sub }   # 好好下线了不算出错，不用红字
             Show-BotMessage $r.Title $r.Detail $color
         }
         Update-BotView
@@ -1926,7 +2132,23 @@ function Invoke-BotAction([string]$body) {
     }
 }
 
-$btnStart.Add_Click({ Invoke-BotAction $StartBody })
+# 下线前问一句：小号 QQ 不自动登录，下线再上线可能要兄长手动登 QQ
+function Confirm-BotStop {
+    $ans = [System.Windows.Forms.MessageBox]::Show($form,
+        "让佳树下线？`r`n`r`n她本人、记忆模型、小号 QQ 都会关掉，她不再回话。`r`n小号 QQ 不自动登录，之后再上线可能要手动登一次 QQ。",
+        '佳树控制台', [System.Windows.Forms.MessageBoxButtons]::OKCancel, [System.Windows.Forms.MessageBoxIcon]::Question,
+        [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+    return ($ans -eq [System.Windows.Forms.DialogResult]::OK)
+}
+
+$btnPower.Add_Click({
+    if ($script:PowerMode -eq 'off') { if (Confirm-BotStop) { Invoke-BotAction $StopBody 'stop' } }
+    elseif ($script:PowerMode -eq 'on') { Invoke-BotAction $StartBody 'start' }
+})
+$btnQq.Add_Click({
+    if ($script:SecondAction -eq 'qq') { Invoke-BotAction $StartBody 'start' }
+    elseif ($script:SecondAction -eq 'stop') { if (Confirm-BotStop) { Invoke-BotAction $StopBody 'stop' } }
+})
 $btnPersona.Add_Click({ Show-PersonaEditor })
 $btnGallery.Add_Click({ Open-MemeManager })
 
@@ -1962,7 +2184,6 @@ function Start-MemSea {
     }
 }
 $btnSea.Add_Click({ Start-MemSea })
-$btnStop.Add_Click({ Invoke-BotAction $StopBody })
 
 $lnkPanel.Add_LinkClicked({ try { Start-Process 'http://127.0.0.1:6185' } catch { } })
 $lnkLog.Add_LinkClicked({
@@ -2058,12 +2279,12 @@ function Update-QuietView {
         Set-Chip $qChip 'warn' '训练中不说话'
         $qStatus.Text = "训练脚本挂着（$($q.Training)），训练完自动恢复；想训练完也不说话就点「暂停群聊」。"
         $qStatus.ForeColor = $Pal.AmberText
-        $btnPause.Text = '暂停群聊'; Set-ButtonKind $btnPause 'red'
+        $btnPause.Text = '暂停群聊'; Set-ButtonKind $btnPause 'calm'
     } else {
         Set-Chip $qChip 'ok' '群里正常说话'
-        $qStatus.Text = '跑训练前点「暂停群聊」：她在群里一句都不说（被 @、插话、主动去群里说都停），私聊照常。'
+        $qStatus.Text = '想让她在群里先安静一会儿就点「暂停群聊」：被 @、插话、主动去群里说都停，私聊照常。'
         $qStatus.ForeColor = $Pal.Muted
-        $btnPause.Text = '暂停群聊'; Set-ButtonKind $btnPause 'red'
+        $btnPause.Text = '暂停群聊'; Set-ButtonKind $btnPause 'calm'
     }
     $tips.SetToolTip($qStatus, $qStatus.Text)
 }
@@ -2311,7 +2532,7 @@ function Set-SegStyle($pill, [bool]$on) {
         $pill.BaseColor = $Pal.White; $pill.HoverColor = $Pal.White; $pill.PressColor = $Pal.White
         $pill.ForeColor = $Pal.Text;  $pill.BorderColor = $Pal.Line
     } else {
-        $pill.BaseColor = $Pal.GreySoft; $pill.HoverColor = (Rgb 229 231 235); $pill.PressColor = (Rgb 221 224 228)
+        $pill.BaseColor = $Pal.GreySoft; $pill.HoverColor = (Rgb 240 229 226); $pill.PressColor = (Rgb 234 220 217)
         $pill.ForeColor = $Pal.GreyText; $pill.BorderColor = [System.Drawing.Color]::Empty
     }
 }
@@ -2320,7 +2541,7 @@ function Set-SegStyle($pill, [bool]$on) {
 function Test-BotOnlineFor([string]$what) {
     if ($script:BotState -and $script:BotState.Astr) { return $true }
     [void][System.Windows.Forms.MessageBox]::Show($form,
-        "机器人离线时不能$what。`r`n这要通过 AstrBot 来做，它记着的表情索引才会一起更新。`r`n请先在左边点「启动」。",
+        "机器人离线时不能$what。`r`n这要通过 AstrBot 来做，它记着的表情索引才会一起更新。`r`n请先点上面的「让佳树上线」。",
         '佳树控制台', [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
     return $false
 }
