@@ -942,7 +942,7 @@ if ($Action -ne 'panel') {
 # =====================================================================
 
 $WindowTitle = '佳树控制台'
-$IconPath    = 'D:\JiashuBot\bot_setup\icons\panel.ico'
+$IconPath    = 'D:\JiashuBot\bot_setup\icons\kaju.ico'
 $InboxFile   = Join-Path $env:TEMP 'jiashu-panel-inbox.txt'
 $ImageExts   = @('.png', '.jpg', '.jpeg', '.gif', '.webp')
 

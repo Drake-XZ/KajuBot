@@ -2,12 +2,12 @@
 # 在 256×256 上用矢量画好，再缩成各个尺寸，打成一个 PNG 压缩的 .ico。
 #
 # 用法：
-#   powershell -NoProfile -ExecutionPolicy Bypass -File make-icon.ps1                 生成 panel.ico（覆盖）
+#   powershell -NoProfile -ExecutionPolicy Bypass -File make-icon.ps1                 生成 kaju.ico（覆盖；11-23 起从 panel.ico 改名，Windows 按文件名缓存图标，换名才会刷新）
 #   powershell -NoProfile -ExecutionPolicy Bypass -File make-icon.ps1 -Preview x.png  另外存一张各尺寸并排的预览图
 # 改颜色 / 形状改下面的 $C 和 Draw-Bow 就行。
 
 param(
-    [string]$Out = (Join-Path $PSScriptRoot 'panel.ico'),
+    [string]$Out = (Join-Path $PSScriptRoot 'kaju.ico'),
     [string]$Preview = ''
 )
 
